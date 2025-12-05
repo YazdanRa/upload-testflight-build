@@ -14,8 +14,6 @@ const VISIBILITY_ATTEMPTS = 10
 const VISIBILITY_DELAY_MS = 10000
 const PRERELEASE_VISIBILITY_ATTEMPTS = 6
 const PRERELEASE_VISIBILITY_DELAY_MS = 5000
-const MAX_VERSION_COMPONENT = 2147483647
-const MAX_VERSION_SEGMENTS = 3
 
 export const appstoreApi: Uploader = {
   async upload(params: UploadParams): Promise<UploadResult> {
@@ -28,19 +26,6 @@ export const appstoreApi: Uploader = {
     const metadata = await extractAppMetadata(params.appPath)
     info(
       `Extracted metadata: bundleId=${metadata.bundleId}, buildNumber=${metadata.buildNumber}, shortVersion=${metadata.shortVersion}`
-    )
-
-    validateVersionString(
-      metadata.buildNumber,
-      'CFBundleVersion',
-      MAX_VERSION_SEGMENTS,
-      MAX_VERSION_COMPONENT
-    )
-    validateVersionString(
-      metadata.shortVersion,
-      'CFBundleShortVersionString',
-      MAX_VERSION_SEGMENTS,
-      MAX_VERSION_COMPONENT
     )
 
     const platform = buildPlatform(params.appType)
@@ -480,32 +465,4 @@ async function lookupBuildState(params: {
     info(`Build processing state: ${state}`)
   }
   return state
-}
-
-function validateVersionString(
-  version: string,
-  fieldName: string,
-  maxSegments: number,
-  maxComponent: number
-): void {
-  const segments = version.split('.')
-
-  if (segments.length === 0 || segments.length > maxSegments) {
-    throw new Error(
-      `${fieldName} must contain 1 to ${maxSegments} numeric segments separated by '.' (got "${version}").`
-    )
-  }
-
-  for (const segment of segments) {
-    if (!/^[0-9]+$/.test(segment)) {
-      throw new Error(`${fieldName} segment "${segment}" is not numeric.`)
-    }
-
-    const value = Number.parseInt(segment, 10)
-    if (Number.isNaN(value) || value > maxComponent) {
-      throw new Error(
-        `${fieldName} segment "${segment}" exceeds ${maxComponent}; App Store Connect rejects values above 2,147,483,647.`
-      )
-    }
-  }
 }

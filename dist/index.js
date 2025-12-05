@@ -90,16 +90,12 @@ const VISIBILITY_ATTEMPTS = 10;
 const VISIBILITY_DELAY_MS = 10000;
 const PRERELEASE_VISIBILITY_ATTEMPTS = 6;
 const PRERELEASE_VISIBILITY_DELAY_MS = 5000;
-const MAX_VERSION_COMPONENT = 2147483647;
-const MAX_VERSION_SEGMENTS = 3;
 exports.appstoreApi = {
     async upload(params) {
         (0, core_1.info)('Starting App Store API upload backend.');
         const token = (0, jwt_1.generateJwt)(params.issuerId, params.apiKeyId, params.apiPrivateKey);
         const metadata = await (0, appMetadata_1.extractAppMetadata)(params.appPath);
         (0, core_1.info)(`Extracted metadata: bundleId=${metadata.bundleId}, buildNumber=${metadata.buildNumber}, shortVersion=${metadata.shortVersion}`);
-        validateVersionString(metadata.buildNumber, 'CFBundleVersion', MAX_VERSION_SEGMENTS, MAX_VERSION_COMPONENT);
-        validateVersionString(metadata.shortVersion, 'CFBundleShortVersionString', MAX_VERSION_SEGMENTS, MAX_VERSION_COMPONENT);
         const platform = (0, http_1.buildPlatform)(params.appType);
         const fileName = (0, path_1.basename)(params.appPath);
         const fileSize = (0, fs_1.statSync)(params.appPath).size;
@@ -325,21 +321,6 @@ async function lookupBuildState(params) {
         (0, core_1.info)(`Build processing state: ${state}`);
     }
     return state;
-}
-function validateVersionString(version, fieldName, maxSegments, maxComponent) {
-    const segments = version.split('.');
-    if (segments.length === 0 || segments.length > maxSegments) {
-        throw new Error(`${fieldName} must contain 1 to ${maxSegments} numeric segments separated by '.' (got "${version}").`);
-    }
-    for (const segment of segments) {
-        if (!/^[0-9]+$/.test(segment)) {
-            throw new Error(`${fieldName} segment "${segment}" is not numeric.`);
-        }
-        const value = Number.parseInt(segment, 10);
-        if (Number.isNaN(value) || value > maxComponent) {
-            throw new Error(`${fieldName} segment "${segment}" exceeds ${maxComponent}; App Store Connect rejects values above 2,147,483,647.`);
-        }
-    }
 }
 
 

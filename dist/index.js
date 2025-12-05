@@ -88,12 +88,16 @@ const MAX_PROCESSING_ATTEMPTS = 20;
 const PROCESSING_DELAY_MS = 30000;
 const VISIBILITY_ATTEMPTS = 10;
 const VISIBILITY_DELAY_MS = 10000;
+const MAX_VERSION_COMPONENT = 2147483647;
+const MAX_VERSION_SEGMENTS = 3;
 exports.appstoreApi = {
     async upload(params) {
         (0, core_1.info)('Starting App Store API upload backend.');
         const token = (0, jwt_1.generateJwt)(params.issuerId, params.apiKeyId, params.apiPrivateKey);
         const metadata = await (0, appMetadata_1.extractAppMetadata)(params.appPath);
         (0, core_1.info)(`Extracted metadata: bundleId=${metadata.bundleId}, buildNumber=${metadata.buildNumber}, shortVersion=${metadata.shortVersion}`);
+        validateVersionString(metadata.buildNumber, 'CFBundleVersion');
+        validateVersionString(metadata.shortVersion, 'CFBundleShortVersionString');
         const platform = (0, http_1.buildPlatform)(params.appType);
         const fileName = (0, path_1.basename)(params.appPath);
         const fileSize = (0, fs_1.statSync)(params.appPath).size;
@@ -106,18 +110,43 @@ exports.appstoreApi = {
             cfBundleShortVersionString: metadata.shortVersion,
             cfBundleVersion: metadata.buildNumber
         }, token);
-        (0, core_1.info)(`Created build upload id=${buildUpload.id}, operations=${buildUpload.uploadOperations.length}`);
-        await performUpload(buildUpload, params.appPath);
+        (0, core_1.info)(`Created build upload id=${buildUpload.id}.`);
+        let uploadOperations;
+        let buildUploadFileId;
+        if (buildUpload.uploadOperations?.length) {
+            uploadOperations = buildUpload.uploadOperations;
+            (0, core_1.info)(`Received upload operations from build upload (${uploadOperations.length} chunks).`);
+        }
+        else {
+            const file = await createBuildUploadFile({
+                buildUploadId: buildUpload.id,
+                fileName,
+                fileSize
+            }, token);
+            uploadOperations = file.uploadOperations;
+            buildUploadFileId = file.id;
+            (0, core_1.info)(`Created build upload file id=${file.id} with ${uploadOperations.length} chunks.`);
+        }
+        await performUpload(uploadOperations, params.appPath);
         (0, core_1.info)('Finished uploading build chunks.');
-        await completeBuildUpload(buildUpload.id, token);
-        (0, core_1.info)('Marked build upload as complete; waiting for processing.');
+        if (buildUploadFileId) {
+            await completeBuildUploadFile(buildUploadFileId, token);
+            (0, core_1.info)('Marked build upload file as uploaded; waiting for processing.');
+        }
+        else {
+            await completeBuildUpload(buildUpload.id, token);
+            (0, core_1.info)('Marked build upload as complete; waiting for processing.');
+        }
         await pollBuildProcessing({
             bundleId: metadata.bundleId,
             buildNumber: metadata.buildNumber,
             platform,
             token
         });
-        return { backend: 'appstoreApi', raw: buildUpload };
+        return {
+            backend: 'appstoreApi',
+            raw: { buildUploadId: buildUpload.id, buildUploadFileId }
+        };
     }
 };
 async function createBuildUpload(params, token) {
@@ -141,17 +170,44 @@ async function createBuildUpload(params, token) {
     };
     const response = await (0, http_1.fetchJson)('/buildUploads', token, 'Failed to create App Store build upload.', 'POST', payload);
     const uploadOperations = response.data.attributes.uploadOperations;
+    return {
+        id: response.data.id,
+        uploadOperations
+    };
+}
+async function createBuildUploadFile(params, token) {
+    const payload = {
+        data: {
+            type: 'buildUploadFiles',
+            attributes: {
+                fileName: params.fileName,
+                fileSize: params.fileSize,
+                assetType: 'ASSET',
+                uti: 'com.apple.ipa'
+            },
+            relationships: {
+                buildUpload: {
+                    data: {
+                        type: 'buildUploads',
+                        id: params.buildUploadId
+                    }
+                }
+            }
+        }
+    };
+    const response = await (0, http_1.fetchJson)('/buildUploadFiles', token, 'Failed to create App Store build upload file.', 'POST', payload);
+    const uploadOperations = response.data.attributes.uploadOperations;
     if (!uploadOperations || uploadOperations.length === 0) {
-        throw new Error('App Store API returned no upload operations.');
+        throw new Error('App Store API returned no upload operations on buildUploadFile.');
     }
     return {
         id: response.data.id,
         uploadOperations
     };
 }
-async function performUpload(upload, appPath) {
+async function performUpload(uploadOperations, appPath) {
     const buffer = await fs_1.promises.readFile(appPath);
-    for (const [index, operation] of upload.uploadOperations.entries()) {
+    for (const [index, operation] of uploadOperations.entries()) {
         const slice = buffer.subarray(operation.offset, operation.offset + operation.length);
         const headers = {};
         if (operation.requestHeaders) {
@@ -168,11 +224,23 @@ async function performUpload(upload, appPath) {
             const text = await response.text();
             throw new Error(`Failed to upload build chunk (status ${response.status}): ${text}`);
         }
-        (0, core_1.info)(`Uploaded chunk ${index + 1}/${upload.uploadOperations.length} (${slice.length} bytes).`);
+        (0, core_1.info)(`Uploaded chunk ${index + 1}/${uploadOperations.length} (${slice.length} bytes).`);
     }
 }
 async function completeBuildUpload(uploadId, token) {
     await (0, http_1.fetchJson)(`/buildUploads/${uploadId}/complete`, token, 'Failed to finalize App Store build upload.', 'POST');
+}
+async function completeBuildUploadFile(buildUploadFileId, token) {
+    const payload = {
+        data: {
+            id: buildUploadFileId,
+            type: 'buildUploadFiles',
+            attributes: {
+                uploaded: true
+            }
+        }
+    };
+    await (0, http_1.fetchJson)(`/buildUploadFiles/${buildUploadFileId}`, token, 'Failed to finalize App Store build upload file.', 'PATCH', payload);
 }
 async function pollBuildProcessing(params) {
     await (0, poll_1.pollUntil)(() => lookupBuildState(params), state => state === 'VALID' || state === 'PROCESSING', {
@@ -202,6 +270,21 @@ async function lookupBuildState(params) {
         (0, core_1.info)(`Build processing state: ${state}`);
     }
     return state;
+}
+function validateVersionString(version, fieldName) {
+    const segments = version.split('.');
+    if (segments.length === 0 || segments.length > MAX_VERSION_SEGMENTS) {
+        throw new Error(`${fieldName} must contain 1 to 3 numeric segments separated by '.' (got "${version}").`);
+    }
+    for (const segment of segments) {
+        if (!/^[0-9]+$/.test(segment)) {
+            throw new Error(`${fieldName} segment "${segment}" is not numeric.`);
+        }
+        const value = Number.parseInt(segment, 10);
+        if (Number.isNaN(value) || value > MAX_VERSION_COMPONENT) {
+            throw new Error(`${fieldName} segment "${segment}" exceeds ${MAX_VERSION_COMPONENT}; Apple rejects values above 2,147,483,647.`);
+        }
+    }
 }
 
 

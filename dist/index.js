@@ -102,7 +102,9 @@ exports.appstoreApi = {
         (0, core_1.info)(`Resolved appId=${appId} for bundleId=${metadata.bundleId}`);
         const buildUpload = await createBuildUpload({
             appId,
-            platform
+            platform,
+            cfBundleShortVersionString: metadata.shortVersion,
+            cfBundleVersion: metadata.buildNumber
         }, token);
         (0, core_1.info)(`Created build upload id=${buildUpload.id}.`);
         let uploadOperations;
@@ -148,7 +150,9 @@ async function createBuildUpload(params, token) {
         data: {
             type: 'buildUploads',
             attributes: {
-                platform: params.platform
+                platform: params.platform,
+                cfBundleShortVersionString: params.cfBundleShortVersionString,
+                cfBundleVersion: params.cfBundleVersion
             },
             relationships: {
                 app: {

@@ -40,7 +40,9 @@ export const appstoreApi: Uploader = {
     const buildUpload = await createBuildUpload(
       {
         appId,
-        platform
+        platform,
+        cfBundleShortVersionString: metadata.shortVersion,
+        cfBundleVersion: metadata.buildNumber
       },
       token
     )
@@ -117,6 +119,8 @@ async function createBuildUpload(
   params: {
     appId: string
     platform: string
+    cfBundleShortVersionString: string
+    cfBundleVersion: string
   },
   token: string
 ): Promise<BuildUpload> {
@@ -124,7 +128,9 @@ async function createBuildUpload(
     data: {
       type: 'buildUploads',
       attributes: {
-        platform: params.platform
+        platform: params.platform,
+        cfBundleShortVersionString: params.cfBundleShortVersionString,
+        cfBundleVersion: params.cfBundleVersion
       },
       relationships: {
         app: {

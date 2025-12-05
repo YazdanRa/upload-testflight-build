@@ -100,6 +100,12 @@ exports.appstoreApi = {
         (0, core_1.info)(`Preparing build upload for platform=${platform}, file=${fileName}, size=${fileSize} bytes`);
         const appId = await (0, lookup_app_id_1.lookupAppId)(metadata.bundleId, token);
         (0, core_1.info)(`Resolved appId=${appId} for bundleId=${metadata.bundleId}`);
+        const appStoreVersionId = await ensureAppStoreVersion({
+            appId,
+            platform,
+            versionString: metadata.shortVersion
+        }, token);
+        (0, core_1.info)(`Ensured appStoreVersion id=${appStoreVersionId} for ${metadata.shortVersion} (${platform}).`);
         const preReleaseVersionId = await lookupPreReleaseVersion({
             appId,
             shortVersion: metadata.shortVersion,
@@ -181,6 +187,47 @@ async function createBuildUpload(params, token) {
         id: response.data.id,
         uploadOperations
     };
+}
+async function ensureAppStoreVersion(params, token) {
+    const existing = await lookupAppStoreVersion(params, token);
+    if (existing) {
+        return existing;
+    }
+    const created = await createAppStoreVersion(params, token);
+    (0, core_1.info)(`Created appStoreVersion id=${created} for ${params.versionString} (${params.platform}).`);
+    return created;
+}
+async function lookupAppStoreVersion(params, token) {
+    const query = new URLSearchParams();
+    query.set('filter[app]', params.appId);
+    query.set('filter[platform]', params.platform);
+    query.set('filter[versionString]', params.versionString);
+    const response = await (0, http_1.fetchJson)(`/appStoreVersions?${query.toString()}`, token, 'Failed to query App Store versions.');
+    return response.data?.[0]?.id;
+}
+async function createAppStoreVersion(params, token) {
+    const payload = {
+        data: {
+            type: 'appStoreVersions',
+            attributes: {
+                platform: params.platform,
+                versionString: params.versionString
+            },
+            relationships: {
+                app: {
+                    data: {
+                        type: 'apps',
+                        id: params.appId
+                    }
+                }
+            }
+        }
+    };
+    const response = await (0, http_1.fetchJson)('/appStoreVersions', token, 'Failed to create App Store version.', 'POST', payload);
+    if (!response.data?.id) {
+        throw new Error('App Store API did not return appStoreVersion id.');
+    }
+    return response.data.id;
 }
 async function lookupPreReleaseVersion(params, token) {
     const query = new URLSearchParams();

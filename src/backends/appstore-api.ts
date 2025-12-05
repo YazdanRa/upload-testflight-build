@@ -12,8 +12,6 @@ const MAX_PROCESSING_ATTEMPTS = 20
 const PROCESSING_DELAY_MS = 30000
 const VISIBILITY_ATTEMPTS = 10
 const VISIBILITY_DELAY_MS = 10000
-const MAX_VERSION_COMPONENT = 2147483647
-const MAX_VERSION_SEGMENTS = 3
 
 export const appstoreApi: Uploader = {
   async upload(params: UploadParams): Promise<UploadResult> {
@@ -27,9 +25,6 @@ export const appstoreApi: Uploader = {
     info(
       `Extracted metadata: bundleId=${metadata.bundleId}, buildNumber=${metadata.buildNumber}, shortVersion=${metadata.shortVersion}`
     )
-
-    validateVersionString(metadata.buildNumber, 'CFBundleVersion')
-    validateVersionString(metadata.shortVersion, 'CFBundleShortVersionString')
 
     const platform = buildPlatform(params.appType)
     const fileName = basename(params.appPath)
@@ -45,9 +40,7 @@ export const appstoreApi: Uploader = {
     const buildUpload = await createBuildUpload(
       {
         appId,
-        platform,
-        cfBundleShortVersionString: metadata.shortVersion,
-        cfBundleVersion: metadata.buildNumber
+        platform
       },
       token
     )
@@ -124,8 +117,6 @@ async function createBuildUpload(
   params: {
     appId: string
     platform: string
-    cfBundleShortVersionString: string
-    cfBundleVersion: string
   },
   token: string
 ): Promise<BuildUpload> {
@@ -133,9 +124,7 @@ async function createBuildUpload(
     data: {
       type: 'buildUploads',
       attributes: {
-        platform: params.platform,
-        cfBundleShortVersionString: params.cfBundleShortVersionString,
-        cfBundleVersion: params.cfBundleVersion
+        platform: params.platform
       },
       relationships: {
         app: {
@@ -362,27 +351,4 @@ async function lookupBuildState(params: {
     info(`Build processing state: ${state}`)
   }
   return state
-}
-
-function validateVersionString(version: string, fieldName: string): void {
-  const segments = version.split('.')
-
-  if (segments.length === 0 || segments.length > MAX_VERSION_SEGMENTS) {
-    throw new Error(
-      `${fieldName} must contain 1 to 3 numeric segments separated by '.' (got "${version}").`
-    )
-  }
-
-  for (const segment of segments) {
-    if (!/^[0-9]+$/.test(segment)) {
-      throw new Error(`${fieldName} segment "${segment}" is not numeric.`)
-    }
-
-    const value = Number.parseInt(segment, 10)
-    if (Number.isNaN(value) || value > MAX_VERSION_COMPONENT) {
-      throw new Error(
-        `${fieldName} segment "${segment}" exceeds ${MAX_VERSION_COMPONENT}; Apple rejects values above 2,147,483,647.`
-      )
-    }
-  }
 }

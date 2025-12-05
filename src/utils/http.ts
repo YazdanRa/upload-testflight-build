@@ -33,42 +33,100 @@ export async function fetchJson<T = unknown>(
   }
 
   const stringifiedBody = body ? JSON.stringify(body) : undefined
-  info(
-    `HTTP request: ${method} ${url.toString()} headers=${JSON.stringify(
-      safeHeaders
-    )} body=${stringifiedBody ?? '<none>'}`
-  )
+  let attempt = 0
+  let lastError: Error | undefined
 
-  const response = await performWithRetry(
-    () =>
-      fetch(url, {
+  while (attempt <= retryOptions.retries) {
+    const attemptStart = Date.now()
+    info(
+      `HTTP request: ${method} ${url.toString()} headers=${JSON.stringify(
+        safeHeaders
+      )} body=${stringifiedBody ?? '<none>'} attempt=${attempt + 1}/${
+        retryOptions.retries + 1
+      }`
+    )
+
+    let response: Response
+    try {
+      response = await fetch(url, {
         method,
         headers,
         body: stringifiedBody
-      }),
-    retryOptions,
-    `${method} ${url.toString()}`
+      })
+    } catch (error: unknown) {
+      lastError =
+        error instanceof Error
+          ? error
+          : new Error(`${errorMessage}: ${String(error)}`)
+
+      if (attempt === retryOptions.retries) {
+        break
+      }
+
+      const backoff =
+        retryOptions.baseDelayMs * Math.pow(retryOptions.factor, attempt)
+      info(
+        `Retrying ${method} ${url.toString()} after ${backoff}ms (attempt ${
+          attempt + 1
+        }) fetch-error=${lastError.message}`
+      )
+      await delay(backoff)
+      attempt += 1
+      continue
+    }
+
+    const responseText = await response.text()
+    const durationMs = Date.now() - attemptStart
+    const requestId =
+      response.headers.get('x-request-id') ??
+      response.headers.get('x-apple-request-id') ??
+      response.headers.get('request-id')
+    const responseHeaders = headersToObject(response.headers)
+    info(
+      `HTTP response: ${method} ${url.toString()} status=${response.status} ${response.statusText} duration=${durationMs}ms request-id=${
+        requestId ?? 'n/a'
+      } headers=${JSON.stringify(responseHeaders)} body=${responseText}`
+    )
+
+    if (response.ok) {
+      if (response.status === 204) {
+        return {} as T
+      }
+
+      const contentType = response.headers.get('content-type')
+      if (!contentType || !contentType.includes('application/json')) {
+        return {} as T
+      }
+
+      return JSON.parse(responseText) as T
+    }
+
+    lastError = new Error(
+      `${errorMessage} (${response.status}): ${responseText}`
+    )
+
+    if (!RETRY_STATUS_CODES.has(response.status)) {
+      break
+    }
+
+    if (attempt === retryOptions.retries) {
+      break
+    }
+
+    const backoff =
+      retryOptions.baseDelayMs * Math.pow(retryOptions.factor, attempt)
+    info(
+      `Retrying ${method} ${url.toString()} after ${backoff}ms (attempt ${
+        attempt + 1
+      }) lastStatus=${response.status} request-id=${requestId ?? 'n/a'}`
+    )
+    await delay(backoff)
+    attempt += 1
+  }
+
+  throw (
+    lastError ?? new Error(`${errorMessage}: request failed without response`)
   )
-
-  const responseText = await response.text()
-  info(
-    `HTTP response: ${method} ${url.toString()} status=${response.status} ${response.statusText} body=${responseText}`
-  )
-
-  if (!response.ok) {
-    throw new Error(`${errorMessage} (${response.status}): ${responseText}`)
-  }
-
-  if (response.status === 204) {
-    return {} as T
-  }
-
-  const contentType = response.headers.get('content-type')
-  if (!contentType || !contentType.includes('application/json')) {
-    return {} as T
-  }
-
-  return JSON.parse(responseText) as T
 }
 
 export function buildPlatform(appType: string): string {
@@ -84,46 +142,16 @@ export function buildPlatform(appType: string): string {
   }
 }
 
-async function performWithRetry(
-  fn: () => Promise<Response>,
-  retryOptions: RetryOptions,
-  label: string
-): Promise<Response> {
-  let attempt = 0
-  let lastError: unknown
-
-  while (attempt <= retryOptions.retries) {
-    try {
-      const response = await fn()
-      if (!RETRY_STATUS_CODES.has(response.status)) {
-        return response
-      }
-
-      lastError = new Error(
-        `${label} responded with retryable status ${response.status}`
-      )
-    } catch (error: unknown) {
-      lastError = error
-    }
-
-    if (attempt === retryOptions.retries) {
-      break
-    }
-
-    const backoff =
-      retryOptions.baseDelayMs * Math.pow(retryOptions.factor, attempt)
-    info(`Retrying ${label} after ${backoff}ms (attempt ${attempt + 1})`)
-    await delay(backoff)
-    attempt += 1
-  }
-
-  throw lastError instanceof Error
-    ? lastError
-    : new Error(`${label} failed after retries`)
-}
-
 async function delay(durationMs: number): Promise<void> {
   return new Promise(resolve => {
     setTimeout(resolve, durationMs)
   })
+}
+
+function headersToObject(headers: Headers): Record<string, string> {
+  const result: Record<string, string> = {}
+  for (const [key, value] of headers.entries()) {
+    result[key] = key.toLowerCase() === 'authorization' ? '[REDACTED]' : value
+  }
+  return result
 }

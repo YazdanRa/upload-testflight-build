@@ -88,16 +88,12 @@ const MAX_PROCESSING_ATTEMPTS = 20;
 const PROCESSING_DELAY_MS = 30000;
 const VISIBILITY_ATTEMPTS = 10;
 const VISIBILITY_DELAY_MS = 10000;
-const MAX_VERSION_COMPONENT = 2147483647;
-const MAX_VERSION_SEGMENTS = 3;
 exports.appstoreApi = {
     async upload(params) {
         (0, core_1.info)('Starting App Store API upload backend.');
         const token = (0, jwt_1.generateJwt)(params.issuerId, params.apiKeyId, params.apiPrivateKey);
         const metadata = await (0, appMetadata_1.extractAppMetadata)(params.appPath);
         (0, core_1.info)(`Extracted metadata: bundleId=${metadata.bundleId}, buildNumber=${metadata.buildNumber}, shortVersion=${metadata.shortVersion}`);
-        validateVersionString(metadata.buildNumber, 'CFBundleVersion');
-        validateVersionString(metadata.shortVersion, 'CFBundleShortVersionString');
         const platform = (0, http_1.buildPlatform)(params.appType);
         const fileName = (0, path_1.basename)(params.appPath);
         const fileSize = (0, fs_1.statSync)(params.appPath).size;
@@ -106,9 +102,7 @@ exports.appstoreApi = {
         (0, core_1.info)(`Resolved appId=${appId} for bundleId=${metadata.bundleId}`);
         const buildUpload = await createBuildUpload({
             appId,
-            platform,
-            cfBundleShortVersionString: metadata.shortVersion,
-            cfBundleVersion: metadata.buildNumber
+            platform
         }, token);
         (0, core_1.info)(`Created build upload id=${buildUpload.id}.`);
         let uploadOperations;
@@ -154,9 +148,7 @@ async function createBuildUpload(params, token) {
         data: {
             type: 'buildUploads',
             attributes: {
-                platform: params.platform,
-                cfBundleShortVersionString: params.cfBundleShortVersionString,
-                cfBundleVersion: params.cfBundleVersion
+                platform: params.platform
             },
             relationships: {
                 app: {
@@ -270,21 +262,6 @@ async function lookupBuildState(params) {
         (0, core_1.info)(`Build processing state: ${state}`);
     }
     return state;
-}
-function validateVersionString(version, fieldName) {
-    const segments = version.split('.');
-    if (segments.length === 0 || segments.length > MAX_VERSION_SEGMENTS) {
-        throw new Error(`${fieldName} must contain 1 to 3 numeric segments separated by '.' (got "${version}").`);
-    }
-    for (const segment of segments) {
-        if (!/^[0-9]+$/.test(segment)) {
-            throw new Error(`${fieldName} segment "${segment}" is not numeric.`);
-        }
-        const value = Number.parseInt(segment, 10);
-        if (Number.isNaN(value) || value > MAX_VERSION_COMPONENT) {
-            throw new Error(`${fieldName} segment "${segment}" exceeds ${MAX_VERSION_COMPONENT}; Apple rejects values above 2,147,483,647.`);
-        }
-    }
 }
 
 
@@ -491,25 +468,63 @@ async function fetchJson(path, token, errorMessage, method = 'GET', body, extraH
         Authorization: headers.Authorization ? '[REDACTED]' : undefined
     };
     const stringifiedBody = body ? JSON.stringify(body) : undefined;
-    (0, core_1.info)(`HTTP request: ${method} ${url.toString()} headers=${JSON.stringify(safeHeaders)} body=${stringifiedBody ?? '<none>'}`);
-    const response = await performWithRetry(() => fetch(url, {
-        method,
-        headers,
-        body: stringifiedBody
-    }), retryOptions, `${method} ${url.toString()}`);
-    const responseText = await response.text();
-    (0, core_1.info)(`HTTP response: ${method} ${url.toString()} status=${response.status} ${response.statusText} body=${responseText}`);
-    if (!response.ok) {
-        throw new Error(`${errorMessage} (${response.status}): ${responseText}`);
+    let attempt = 0;
+    let lastError;
+    while (attempt <= retryOptions.retries) {
+        const attemptStart = Date.now();
+        (0, core_1.info)(`HTTP request: ${method} ${url.toString()} headers=${JSON.stringify(safeHeaders)} body=${stringifiedBody ?? '<none>'} attempt=${attempt + 1}/${retryOptions.retries + 1}`);
+        let response;
+        try {
+            response = await fetch(url, {
+                method,
+                headers,
+                body: stringifiedBody
+            });
+        }
+        catch (error) {
+            lastError =
+                error instanceof Error
+                    ? error
+                    : new Error(`${errorMessage}: ${String(error)}`);
+            if (attempt === retryOptions.retries) {
+                break;
+            }
+            const backoff = retryOptions.baseDelayMs * Math.pow(retryOptions.factor, attempt);
+            (0, core_1.info)(`Retrying ${method} ${url.toString()} after ${backoff}ms (attempt ${attempt + 1}) fetch-error=${lastError.message}`);
+            await delay(backoff);
+            attempt += 1;
+            continue;
+        }
+        const responseText = await response.text();
+        const durationMs = Date.now() - attemptStart;
+        const requestId = response.headers.get('x-request-id') ??
+            response.headers.get('x-apple-request-id') ??
+            response.headers.get('request-id');
+        const responseHeaders = headersToObject(response.headers);
+        (0, core_1.info)(`HTTP response: ${method} ${url.toString()} status=${response.status} ${response.statusText} duration=${durationMs}ms request-id=${requestId ?? 'n/a'} headers=${JSON.stringify(responseHeaders)} body=${responseText}`);
+        if (response.ok) {
+            if (response.status === 204) {
+                return {};
+            }
+            const contentType = response.headers.get('content-type');
+            if (!contentType || !contentType.includes('application/json')) {
+                return {};
+            }
+            return JSON.parse(responseText);
+        }
+        lastError = new Error(`${errorMessage} (${response.status}): ${responseText}`);
+        if (!RETRY_STATUS_CODES.has(response.status)) {
+            break;
+        }
+        if (attempt === retryOptions.retries) {
+            break;
+        }
+        const backoff = retryOptions.baseDelayMs * Math.pow(retryOptions.factor, attempt);
+        (0, core_1.info)(`Retrying ${method} ${url.toString()} after ${backoff}ms (attempt ${attempt + 1}) lastStatus=${response.status} request-id=${requestId ?? 'n/a'}`);
+        await delay(backoff);
+        attempt += 1;
     }
-    if (response.status === 204) {
-        return {};
-    }
-    const contentType = response.headers.get('content-type');
-    if (!contentType || !contentType.includes('application/json')) {
-        return {};
-    }
-    return JSON.parse(responseText);
+    throw (lastError ?? new Error(`${errorMessage}: request failed without response`));
 }
 function buildPlatform(appType) {
     switch (appType.toLowerCase()) {
@@ -523,36 +538,17 @@ function buildPlatform(appType) {
             return 'IOS';
     }
 }
-async function performWithRetry(fn, retryOptions, label) {
-    let attempt = 0;
-    let lastError;
-    while (attempt <= retryOptions.retries) {
-        try {
-            const response = await fn();
-            if (!RETRY_STATUS_CODES.has(response.status)) {
-                return response;
-            }
-            lastError = new Error(`${label} responded with retryable status ${response.status}`);
-        }
-        catch (error) {
-            lastError = error;
-        }
-        if (attempt === retryOptions.retries) {
-            break;
-        }
-        const backoff = retryOptions.baseDelayMs * Math.pow(retryOptions.factor, attempt);
-        (0, core_1.info)(`Retrying ${label} after ${backoff}ms (attempt ${attempt + 1})`);
-        await delay(backoff);
-        attempt += 1;
-    }
-    throw lastError instanceof Error
-        ? lastError
-        : new Error(`${label} failed after retries`);
-}
 async function delay(durationMs) {
     return new Promise(resolve => {
         setTimeout(resolve, durationMs);
     });
+}
+function headersToObject(headers) {
+    const result = {};
+    for (const [key, value] of headers.entries()) {
+        result[key] = key.toLowerCase() === 'authorization' ? '[REDACTED]' : value;
+    }
+    return result;
 }
 
 

@@ -12,6 +12,10 @@ const MAX_PROCESSING_ATTEMPTS = 20
 const PROCESSING_DELAY_MS = 30000
 const VISIBILITY_ATTEMPTS = 10
 const VISIBILITY_DELAY_MS = 10000
+const PRERELEASE_VISIBILITY_ATTEMPTS = 6
+const PRERELEASE_VISIBILITY_DELAY_MS = 5000
+const MAX_VERSION_COMPONENT = 2147483647
+const MAX_VERSION_SEGMENTS = 3
 
 export const appstoreApi: Uploader = {
   async upload(params: UploadParams): Promise<UploadResult> {
@@ -26,6 +30,19 @@ export const appstoreApi: Uploader = {
       `Extracted metadata: bundleId=${metadata.bundleId}, buildNumber=${metadata.buildNumber}, shortVersion=${metadata.shortVersion}`
     )
 
+    validateVersionString(
+      metadata.buildNumber,
+      'CFBundleVersion',
+      MAX_VERSION_SEGMENTS,
+      MAX_VERSION_COMPONENT
+    )
+    validateVersionString(
+      metadata.shortVersion,
+      'CFBundleShortVersionString',
+      MAX_VERSION_SEGMENTS,
+      MAX_VERSION_COMPONENT
+    )
+
     const platform = buildPlatform(params.appType)
     const fileName = basename(params.appPath)
     const fileSize = statSync(params.appPath).size
@@ -36,6 +53,18 @@ export const appstoreApi: Uploader = {
 
     const appId = await lookupAppId(metadata.bundleId, token)
     info(`Resolved appId=${appId} for bundleId=${metadata.bundleId}`)
+
+    const preReleaseVersionId = await ensurePreReleaseVersion(
+      {
+        appId,
+        shortVersion: metadata.shortVersion,
+        platform
+      },
+      token
+    )
+    info(
+      `Ensured preReleaseVersion id=${preReleaseVersionId} for ${metadata.shortVersion} (${platform}).`
+    )
 
     const buildUpload = await createBuildUpload(
       {
@@ -102,6 +131,10 @@ type BuildUpload = {
   uploadOperations?: UploadOperation[]
 }
 
+type PreReleaseVersion = {
+  id: string
+}
+
 type UploadOperation = {
   method: string
   url: string
@@ -163,6 +196,96 @@ async function createBuildUpload(
     id: response.data.id,
     uploadOperations
   }
+}
+
+async function ensurePreReleaseVersion(
+  params: {
+    appId: string
+    shortVersion: string
+    platform: string
+  },
+  token: string
+): Promise<string> {
+  const existing = await lookupPreReleaseVersion(params, token)
+  if (existing) {
+    return existing
+  }
+
+  const created = await createPreReleaseVersion(params, token)
+  info(
+    `Created preReleaseVersion id=${created} for ${params.shortVersion} (${params.platform}).`
+  )
+
+  return await pollUntil(
+    () => lookupPreReleaseVersion(params, token),
+    Boolean,
+    {
+      attempts: PRERELEASE_VISIBILITY_ATTEMPTS,
+      delayMs: PRERELEASE_VISIBILITY_DELAY_MS,
+      onRetry: attempt => {
+        warning(
+          `Waiting for preReleaseVersion ${params.shortVersion} (${params.platform}) to propagate (attempt ${
+            attempt + 1
+          }/${PRERELEASE_VISIBILITY_ATTEMPTS}).`
+        )
+      }
+    }
+  )
+}
+
+async function lookupPreReleaseVersion(
+  params: {appId: string; shortVersion: string; platform: string},
+  token: string
+): Promise<string | undefined> {
+  const query = new URLSearchParams()
+  query.set('filter[app]', params.appId)
+  query.set('filter[platform]', params.platform)
+  query.set('filter[version]', params.shortVersion)
+
+  const response = await fetchJson<{data?: PreReleaseVersion[]}>(
+    `/preReleaseVersions?${query.toString()}`,
+    token,
+    'Failed to query pre-release versions.'
+  )
+
+  return response.data?.[0]?.id
+}
+
+async function createPreReleaseVersion(
+  params: {appId: string; shortVersion: string; platform: string},
+  token: string
+): Promise<string> {
+  const payload = {
+    data: {
+      type: 'preReleaseVersions',
+      attributes: {
+        version: params.shortVersion,
+        platform: params.platform
+      },
+      relationships: {
+        app: {
+          data: {
+            type: 'apps',
+            id: params.appId
+          }
+        }
+      }
+    }
+  }
+
+  const response = await fetchJson<{data: PreReleaseVersion}>(
+    '/preReleaseVersions',
+    token,
+    'Failed to create pre-release version.',
+    'POST',
+    payload
+  )
+
+  if (!response.data?.id) {
+    throw new Error('App Store API did not return preReleaseVersion id.')
+  }
+
+  return response.data.id
 }
 
 async function createBuildUploadFile(
@@ -357,4 +480,32 @@ async function lookupBuildState(params: {
     info(`Build processing state: ${state}`)
   }
   return state
+}
+
+function validateVersionString(
+  version: string,
+  fieldName: string,
+  maxSegments: number,
+  maxComponent: number
+): void {
+  const segments = version.split('.')
+
+  if (segments.length === 0 || segments.length > maxSegments) {
+    throw new Error(
+      `${fieldName} must contain 1 to ${maxSegments} numeric segments separated by '.' (got "${version}").`
+    )
+  }
+
+  for (const segment of segments) {
+    if (!/^[0-9]+$/.test(segment)) {
+      throw new Error(`${fieldName} segment "${segment}" is not numeric.`)
+    }
+
+    const value = Number.parseInt(segment, 10)
+    if (Number.isNaN(value) || value > maxComponent) {
+      throw new Error(
+        `${fieldName} segment "${segment}" exceeds ${maxComponent}; App Store Connect rejects values above 2,147,483,647.`
+      )
+    }
+  }
 }

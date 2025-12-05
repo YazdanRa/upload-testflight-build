@@ -88,18 +88,30 @@ const MAX_PROCESSING_ATTEMPTS = 20;
 const PROCESSING_DELAY_MS = 30000;
 const VISIBILITY_ATTEMPTS = 10;
 const VISIBILITY_DELAY_MS = 10000;
+const PRERELEASE_VISIBILITY_ATTEMPTS = 6;
+const PRERELEASE_VISIBILITY_DELAY_MS = 5000;
+const MAX_VERSION_COMPONENT = 2147483647;
+const MAX_VERSION_SEGMENTS = 3;
 exports.appstoreApi = {
     async upload(params) {
         (0, core_1.info)('Starting App Store API upload backend.');
         const token = (0, jwt_1.generateJwt)(params.issuerId, params.apiKeyId, params.apiPrivateKey);
         const metadata = await (0, appMetadata_1.extractAppMetadata)(params.appPath);
         (0, core_1.info)(`Extracted metadata: bundleId=${metadata.bundleId}, buildNumber=${metadata.buildNumber}, shortVersion=${metadata.shortVersion}`);
+        validateVersionString(metadata.buildNumber, 'CFBundleVersion', MAX_VERSION_SEGMENTS, MAX_VERSION_COMPONENT);
+        validateVersionString(metadata.shortVersion, 'CFBundleShortVersionString', MAX_VERSION_SEGMENTS, MAX_VERSION_COMPONENT);
         const platform = (0, http_1.buildPlatform)(params.appType);
         const fileName = (0, path_1.basename)(params.appPath);
         const fileSize = (0, fs_1.statSync)(params.appPath).size;
         (0, core_1.info)(`Preparing build upload for platform=${platform}, file=${fileName}, size=${fileSize} bytes`);
         const appId = await (0, lookup_app_id_1.lookupAppId)(metadata.bundleId, token);
         (0, core_1.info)(`Resolved appId=${appId} for bundleId=${metadata.bundleId}`);
+        const preReleaseVersionId = await ensurePreReleaseVersion({
+            appId,
+            shortVersion: metadata.shortVersion,
+            platform
+        }, token);
+        (0, core_1.info)(`Ensured preReleaseVersion id=${preReleaseVersionId} for ${metadata.shortVersion} (${platform}).`);
         const buildUpload = await createBuildUpload({
             appId,
             platform,
@@ -170,6 +182,53 @@ async function createBuildUpload(params, token) {
         id: response.data.id,
         uploadOperations
     };
+}
+async function ensurePreReleaseVersion(params, token) {
+    const existing = await lookupPreReleaseVersion(params, token);
+    if (existing) {
+        return existing;
+    }
+    const created = await createPreReleaseVersion(params, token);
+    (0, core_1.info)(`Created preReleaseVersion id=${created} for ${params.shortVersion} (${params.platform}).`);
+    return await (0, poll_1.pollUntil)(() => lookupPreReleaseVersion(params, token), Boolean, {
+        attempts: PRERELEASE_VISIBILITY_ATTEMPTS,
+        delayMs: PRERELEASE_VISIBILITY_DELAY_MS,
+        onRetry: attempt => {
+            (0, core_1.warning)(`Waiting for preReleaseVersion ${params.shortVersion} (${params.platform}) to propagate (attempt ${attempt + 1}/${PRERELEASE_VISIBILITY_ATTEMPTS}).`);
+        }
+    });
+}
+async function lookupPreReleaseVersion(params, token) {
+    const query = new URLSearchParams();
+    query.set('filter[app]', params.appId);
+    query.set('filter[platform]', params.platform);
+    query.set('filter[version]', params.shortVersion);
+    const response = await (0, http_1.fetchJson)(`/preReleaseVersions?${query.toString()}`, token, 'Failed to query pre-release versions.');
+    return response.data?.[0]?.id;
+}
+async function createPreReleaseVersion(params, token) {
+    const payload = {
+        data: {
+            type: 'preReleaseVersions',
+            attributes: {
+                version: params.shortVersion,
+                platform: params.platform
+            },
+            relationships: {
+                app: {
+                    data: {
+                        type: 'apps',
+                        id: params.appId
+                    }
+                }
+            }
+        }
+    };
+    const response = await (0, http_1.fetchJson)('/preReleaseVersions', token, 'Failed to create pre-release version.', 'POST', payload);
+    if (!response.data?.id) {
+        throw new Error('App Store API did not return preReleaseVersion id.');
+    }
+    return response.data.id;
 }
 async function createBuildUploadFile(params, token) {
     const payload = {
@@ -266,6 +325,21 @@ async function lookupBuildState(params) {
         (0, core_1.info)(`Build processing state: ${state}`);
     }
     return state;
+}
+function validateVersionString(version, fieldName, maxSegments, maxComponent) {
+    const segments = version.split('.');
+    if (segments.length === 0 || segments.length > maxSegments) {
+        throw new Error(`${fieldName} must contain 1 to ${maxSegments} numeric segments separated by '.' (got "${version}").`);
+    }
+    for (const segment of segments) {
+        if (!/^[0-9]+$/.test(segment)) {
+            throw new Error(`${fieldName} segment "${segment}" is not numeric.`);
+        }
+        const value = Number.parseInt(segment, 10);
+        if (Number.isNaN(value) || value > maxComponent) {
+            throw new Error(`${fieldName} segment "${segment}" exceeds ${maxComponent}; App Store Connect rejects values above 2,147,483,647.`);
+        }
+    }
 }
 
 

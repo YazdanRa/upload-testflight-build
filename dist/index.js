@@ -123,7 +123,8 @@ exports.appstoreApi = {
             appId,
             platform,
             cfBundleShortVersionString: metadata.shortVersion,
-            cfBundleVersion: metadata.buildNumber
+            cfBundleVersion: metadata.buildNumber,
+            appStoreVersionId
         }, token);
         (0, core_1.info)(`Created build upload id=${buildUpload.id}.`);
         let uploadOperations;
@@ -179,7 +180,17 @@ async function createBuildUpload(params, token) {
                         type: 'apps',
                         id: params.appId
                     }
-                }
+                },
+                ...(params.appStoreVersionId
+                    ? {
+                        appStoreVersion: {
+                            data: {
+                                type: 'appStoreVersions',
+                                id: params.appStoreVersionId
+                            }
+                        }
+                    }
+                    : undefined)
             }
         }
     };

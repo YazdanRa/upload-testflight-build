@@ -12,8 +12,6 @@ const MAX_PROCESSING_ATTEMPTS = 20
 const PROCESSING_DELAY_MS = 30000
 const VISIBILITY_ATTEMPTS = 10
 const VISIBILITY_DELAY_MS = 10000
-const PRERELEASE_VISIBILITY_ATTEMPTS = 6
-const PRERELEASE_VISIBILITY_DELAY_MS = 5000
 
 export const appstoreApi: Uploader = {
   async upload(params: UploadParams): Promise<UploadResult> {
@@ -39,7 +37,7 @@ export const appstoreApi: Uploader = {
     const appId = await lookupAppId(metadata.bundleId, token)
     info(`Resolved appId=${appId} for bundleId=${metadata.bundleId}`)
 
-    const preReleaseVersionId = await ensurePreReleaseVersion(
+    const preReleaseVersionId = await lookupPreReleaseVersion(
       {
         appId,
         shortVersion: metadata.shortVersion,
@@ -47,9 +45,15 @@ export const appstoreApi: Uploader = {
       },
       token
     )
-    info(
-      `Ensured preReleaseVersion id=${preReleaseVersionId} for ${metadata.shortVersion} (${platform}).`
-    )
+    if (preReleaseVersionId) {
+      info(
+        `Found existing preReleaseVersion id=${preReleaseVersionId} for ${metadata.shortVersion} (${platform}).`
+      )
+    } else {
+      warning(
+        `No preReleaseVersion found for ${metadata.shortVersion} (${platform}); proceeding and relying on App Store Connect to create it during upload.`
+      )
+    }
 
     const buildUpload = await createBuildUpload(
       {
@@ -183,41 +187,6 @@ async function createBuildUpload(
   }
 }
 
-async function ensurePreReleaseVersion(
-  params: {
-    appId: string
-    shortVersion: string
-    platform: string
-  },
-  token: string
-): Promise<string> {
-  const existing = await lookupPreReleaseVersion(params, token)
-  if (existing) {
-    return existing
-  }
-
-  const created = await createPreReleaseVersion(params, token)
-  info(
-    `Created preReleaseVersion id=${created} for ${params.shortVersion} (${params.platform}).`
-  )
-
-  return await pollUntil(
-    () => lookupPreReleaseVersion(params, token),
-    Boolean,
-    {
-      attempts: PRERELEASE_VISIBILITY_ATTEMPTS,
-      delayMs: PRERELEASE_VISIBILITY_DELAY_MS,
-      onRetry: attempt => {
-        warning(
-          `Waiting for preReleaseVersion ${params.shortVersion} (${params.platform}) to propagate (attempt ${
-            attempt + 1
-          }/${PRERELEASE_VISIBILITY_ATTEMPTS}).`
-        )
-      }
-    }
-  )
-}
-
 async function lookupPreReleaseVersion(
   params: {appId: string; shortVersion: string; platform: string},
   token: string
@@ -234,43 +203,6 @@ async function lookupPreReleaseVersion(
   )
 
   return response.data?.[0]?.id
-}
-
-async function createPreReleaseVersion(
-  params: {appId: string; shortVersion: string; platform: string},
-  token: string
-): Promise<string> {
-  const payload = {
-    data: {
-      type: 'preReleaseVersions',
-      attributes: {
-        version: params.shortVersion,
-        platform: params.platform
-      },
-      relationships: {
-        app: {
-          data: {
-            type: 'apps',
-            id: params.appId
-          }
-        }
-      }
-    }
-  }
-
-  const response = await fetchJson<{data: PreReleaseVersion}>(
-    '/preReleaseVersions',
-    token,
-    'Failed to create pre-release version.',
-    'POST',
-    payload
-  )
-
-  if (!response.data?.id) {
-    throw new Error('App Store API did not return preReleaseVersion id.')
-  }
-
-  return response.data.id
 }
 
 async function createBuildUploadFile(

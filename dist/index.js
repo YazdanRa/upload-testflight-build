@@ -105,7 +105,9 @@ exports.appstoreApi = {
             platform,
             versionString: metadata.shortVersion
         }, token);
-        (0, core_1.info)(`Ensured appStoreVersion id=${appStoreVersionId} for ${metadata.shortVersion} (${platform}).`);
+        if (appStoreVersionId) {
+            (0, core_1.info)(`Ensured appStoreVersion id=${appStoreVersionId} for ${metadata.shortVersion} (${platform}).`);
+        }
         const preReleaseVersionId = await lookupPreReleaseVersion({
             appId,
             shortVersion: metadata.shortVersion,
@@ -189,21 +191,20 @@ async function createBuildUpload(params, token) {
     };
 }
 async function ensureAppStoreVersion(params, token) {
-    const existing = await lookupAppStoreVersion(params, token);
-    if (existing) {
-        return existing;
+    try {
+        const created = await createAppStoreVersion(params, token);
+        (0, core_1.info)(`Created appStoreVersion id=${created} for ${params.versionString} (${params.platform}).`);
+        return created;
     }
-    const created = await createAppStoreVersion(params, token);
-    (0, core_1.info)(`Created appStoreVersion id=${created} for ${params.versionString} (${params.platform}).`);
-    return created;
-}
-async function lookupAppStoreVersion(params, token) {
-    const query = new URLSearchParams();
-    query.set('filter[app]', params.appId);
-    query.set('filter[platform]', params.platform);
-    query.set('filter[versionString]', params.versionString);
-    const response = await (0, http_1.fetchJson)(`/appStoreVersions?${query.toString()}`, token, 'Failed to query App Store versions.');
-    return response.data?.[0]?.id;
+    catch (error) {
+        const message = error?.message ?? '';
+        // If the version already exists or the token cannot list versions, continue without blocking upload.
+        if (message.includes('(403)') || message.includes('(409)')) {
+            (0, core_1.warning)(`Proceeding without creating appStoreVersion for ${params.versionString} (${params.platform}): ${message}`);
+            return undefined;
+        }
+        throw error;
+    }
 }
 async function createAppStoreVersion(params, token) {
     const payload = {

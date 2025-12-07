@@ -217,8 +217,8 @@ exports.transporter = void 0;
 exports.uploadApp = uploadApp;
 const exec_1 = __nccwpck_require__(5236);
 async function uploadApp(appPath, appType, apiKeyId, issuerId, options) {
+    const transporterBinary = '/usr/local/itms/bin/iTMSTransporter';
     const args = [
-        'iTMSTransporter',
         '-m',
         'upload',
         '-assetFile',
@@ -233,7 +233,7 @@ async function uploadApp(appPath, appType, apiKeyId, issuerId, options) {
     if (appType !== '') {
         args.push('-appPlatform', appType);
     }
-    await (0, exec_1.exec)('xcrun', args, options);
+    await (0, exec_1.exec)(transporterBinary, args, options);
 }
 exports.transporter = {
     async upload(params, execOptions) {

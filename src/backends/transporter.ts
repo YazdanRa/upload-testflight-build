@@ -9,8 +9,9 @@ export async function uploadApp(
   issuerId: string,
   options?: ExecOptions
 ): Promise<void> {
+  const transporterBinary = '/usr/local/itms/bin/iTMSTransporter'
+
   const args: string[] = [
-    'iTMSTransporter',
     '-m',
     'upload',
     '-assetFile',
@@ -27,7 +28,7 @@ export async function uploadApp(
     args.push('-appPlatform', appType)
   }
 
-  await exec('xcrun', args, options)
+  await exec(transporterBinary, args, options)
 }
 
 export const transporter: Uploader = {

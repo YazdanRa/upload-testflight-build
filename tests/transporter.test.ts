@@ -36,9 +36,8 @@ describe('transporter utilities', () => {
     await uploadApp('path/to/app.ipa', 'ios', 'KEY123', 'ISSUER456')
 
     expect(execMock).toHaveBeenCalledWith(
-      'xcrun',
+      '/usr/local/itms/bin/iTMSTransporter',
       [
-        'iTMSTransporter',
         '-m',
         'upload',
         '-assetFile',

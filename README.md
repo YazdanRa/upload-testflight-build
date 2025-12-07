@@ -25,10 +25,21 @@
     backend: altool # optional: AppStoreAPI | transporter | altool (default: altool; case insensitive)
 ```
 
-> [!NOTE]
-> `transporter` backend requires Transporter to be installed on the runner.
+> [!IMPORTANT]
+> `transporter` backend requires Transporter to be installed on the runner and the action now calls the installed binary directly (no `xcrun` shim).
 > The GitHub hosted runners (Xcode 14+) do not have Transporter installed by default.
-> You can either install it as part of your workflow or use a self-hosted runner with Transporter already installed.
+> You can install it in your workflow before this action runs:
+>
+> ```yaml
+> - name: Install Transporter
+>   run: |
+>     url="https://itunesconnect.apple.com/WebObjects/iTunesConnect.woa/ra/resources/download/public/Transporter__OSX/bin/"
+>     curl -fsSL "$url" -o "/tmp/itmstransporter.pkg"
+>     sudo installer -pkg "/tmp/itmstransporter.pkg" -target /
+>     /usr/local/itms/bin/iTMSTransporter -help
+> ```
+>
+> Alternatively, use a self-hosted runner that already has Transporter installed at `/usr/local/itms/bin/iTMSTransporter`.
 
 
 ## Additional Arguments

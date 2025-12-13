@@ -140,7 +140,8 @@ async function createBuildUpload(params, token) {
         }
     };
     const response = await (0, http_1.fetchJson)('/buildUploads', token, 'Failed to create App Store build upload.', 'POST', payload);
-    const uploadOperations = response.data.attributes.uploadOperations;
+    const uploadOperations = response.data.attributes.uploadOperations ??
+        (await fetchUploadOperations(response.data.id, token));
     if (!uploadOperations || uploadOperations.length === 0) {
         throw new Error('App Store API returned no upload operations.');
     }
@@ -148,6 +149,13 @@ async function createBuildUpload(params, token) {
         id: response.data.id,
         uploadOperations
     };
+}
+async function fetchUploadOperations(uploadId, token) {
+    const response = await (0, http_1.fetchJson)(`/buildUploads/${uploadId}/buildUploadFiles`, token, 'Failed to fetch App Store build upload operations.');
+    const uploadOperations = response.data
+        ?.flatMap(entry => entry.attributes?.uploadOperations ?? [])
+        .filter(Boolean) ?? [];
+    return uploadOperations;
 }
 async function performUpload(upload, appPath) {
     const buffer = await fs_1.promises.readFile(appPath);

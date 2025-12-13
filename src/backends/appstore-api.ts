@@ -111,7 +111,7 @@ async function createBuildUpload(
     data: {
       id: string
       attributes: {
-        uploadOperations: UploadOperation[]
+        uploadOperations?: UploadOperation[]
       }
     }
   }>(
@@ -122,7 +122,9 @@ async function createBuildUpload(
     payload
   )
 
-  const uploadOperations = response.data.attributes.uploadOperations
+  const uploadOperations =
+    response.data.attributes.uploadOperations ??
+    (await fetchUploadOperations(response.data.id, token))
   if (!uploadOperations || uploadOperations.length === 0) {
     throw new Error('App Store API returned no upload operations.')
   }
@@ -131,6 +133,26 @@ async function createBuildUpload(
     id: response.data.id,
     uploadOperations
   }
+}
+
+async function fetchUploadOperations(
+  uploadId: string,
+  token: string
+): Promise<UploadOperation[]> {
+  const response = await fetchJson<{
+    data?: Array<{attributes?: {uploadOperations?: UploadOperation[]}}>
+  }>(
+    `/buildUploads/${uploadId}/buildUploadFiles`,
+    token,
+    'Failed to fetch App Store build upload operations.'
+  )
+
+  const uploadOperations =
+    response.data
+      ?.flatMap(entry => entry.attributes?.uploadOperations ?? [])
+      .filter(Boolean) ?? []
+
+  return uploadOperations
 }
 
 async function performUpload(

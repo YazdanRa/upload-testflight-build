@@ -155,12 +155,9 @@ async function createBuildUpload(params, token) {
     };
 }
 async function fetchUploadOperations(uploadId, token) {
-    const response = await (0, http_1.fetchJson)(`/buildUploads/${uploadId}?include=buildUploadFiles`, token, 'Failed to fetch App Store build upload operations.');
+    const response = await (0, http_1.fetchJson)(`/buildUploads/${uploadId}`, token, 'Failed to fetch App Store build upload operations.');
     let uploadOperations = [
-        ...(response.data?.attributes?.uploadOperations ?? []),
-        ...(response.included
-            ?.flatMap(entry => entry.attributes?.uploadOperations ?? [])
-            .filter(Boolean) ?? [])
+        ...(response.data?.attributes?.uploadOperations ?? [])
     ];
     // Fallback: some responses have operations only on the relationship endpoint.
     if (uploadOperations.length === 0) {

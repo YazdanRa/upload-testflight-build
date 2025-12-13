@@ -145,18 +145,14 @@ async function fetchUploadOperations(
 ): Promise<UploadOperation[]> {
   const response = await fetchJson<{
     data?: {attributes?: {uploadOperations?: UploadOperation[]}}
-    included?: Array<{attributes?: {uploadOperations?: UploadOperation[]}}>
   }>(
-    `/buildUploads/${uploadId}?include=buildUploadFiles`,
+    `/buildUploads/${uploadId}`,
     token,
     'Failed to fetch App Store build upload operations.'
   )
 
   let uploadOperations: UploadOperation[] = [
-    ...(response.data?.attributes?.uploadOperations ?? []),
-    ...(response.included
-      ?.flatMap(entry => entry.attributes?.uploadOperations ?? [])
-      .filter(Boolean) ?? [])
+    ...(response.data?.attributes?.uploadOperations ?? [])
   ]
 
   // Fallback: some responses have operations only on the relationship endpoint.

@@ -88,8 +88,8 @@ const MAX_PROCESSING_ATTEMPTS = 20;
 const PROCESSING_DELAY_MS = 30000;
 const VISIBILITY_ATTEMPTS = 10;
 const VISIBILITY_DELAY_MS = 10000;
-const UPLOAD_OPERATIONS_ATTEMPTS = 10;
-const UPLOAD_OPERATIONS_DELAY_MS = 2000;
+const UPLOAD_OPERATIONS_ATTEMPTS = 30;
+const UPLOAD_OPERATIONS_DELAY_MS = 5000;
 exports.appstoreApi = {
     async upload(params) {
         (0, core_1.info)('Starting App Store API upload backend.');
@@ -155,10 +155,21 @@ async function createBuildUpload(params, token) {
     };
 }
 async function fetchUploadOperations(uploadId, token) {
-    const response = await (0, http_1.fetchJson)(`/buildUploads/${uploadId}/buildUploadFiles`, token, 'Failed to fetch App Store build upload operations.');
-    const uploadOperations = response.data
-        ?.flatMap(entry => entry.attributes?.uploadOperations ?? [])
-        .filter(Boolean) ?? [];
+    const response = await (0, http_1.fetchJson)(`/buildUploads/${uploadId}?include=buildUploadFiles`, token, 'Failed to fetch App Store build upload operations.');
+    let uploadOperations = [
+        ...(response.data?.attributes?.uploadOperations ?? []),
+        ...(response.included
+            ?.flatMap(entry => entry.attributes?.uploadOperations ?? [])
+            .filter(Boolean) ?? [])
+    ];
+    // Fallback: some responses have operations only on the relationship endpoint.
+    if (uploadOperations.length === 0) {
+        const relationshipResponse = await (0, http_1.fetchJson)(`/buildUploads/${uploadId}/buildUploadFiles`, token, 'Failed to fetch App Store build upload operations.');
+        uploadOperations =
+            relationshipResponse.data
+                ?.flatMap(entry => entry.attributes?.uploadOperations ?? [])
+                .filter(Boolean) ?? [];
+    }
     return uploadOperations;
 }
 async function waitForUploadOperations(uploadId, token) {

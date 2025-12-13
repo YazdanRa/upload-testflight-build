@@ -12,8 +12,8 @@ const MAX_PROCESSING_ATTEMPTS = 20
 const PROCESSING_DELAY_MS = 30000
 const VISIBILITY_ATTEMPTS = 10
 const VISIBILITY_DELAY_MS = 10000
-const UPLOAD_OPERATIONS_ATTEMPTS = 10
-const UPLOAD_OPERATIONS_DELAY_MS = 2000
+const UPLOAD_OPERATIONS_ATTEMPTS = 30
+const UPLOAD_OPERATIONS_DELAY_MS = 5000
 
 export const appstoreApi: Uploader = {
   async upload(params: UploadParams): Promise<UploadResult> {
@@ -144,17 +144,36 @@ async function fetchUploadOperations(
   token: string
 ): Promise<UploadOperation[]> {
   const response = await fetchJson<{
-    data?: Array<{attributes?: {uploadOperations?: UploadOperation[]}}>
+    data?: {attributes?: {uploadOperations?: UploadOperation[]}}
+    included?: Array<{attributes?: {uploadOperations?: UploadOperation[]}}>
   }>(
-    `/buildUploads/${uploadId}/buildUploadFiles`,
+    `/buildUploads/${uploadId}?include=buildUploadFiles`,
     token,
     'Failed to fetch App Store build upload operations.'
   )
 
-  const uploadOperations =
-    response.data
+  let uploadOperations: UploadOperation[] = [
+    ...(response.data?.attributes?.uploadOperations ?? []),
+    ...(response.included
       ?.flatMap(entry => entry.attributes?.uploadOperations ?? [])
-      .filter(Boolean) ?? []
+      .filter(Boolean) ?? [])
+  ]
+
+  // Fallback: some responses have operations only on the relationship endpoint.
+  if (uploadOperations.length === 0) {
+    const relationshipResponse = await fetchJson<{
+      data?: Array<{attributes?: {uploadOperations?: UploadOperation[]}}>
+    }>(
+      `/buildUploads/${uploadId}/buildUploadFiles`,
+      token,
+      'Failed to fetch App Store build upload operations.'
+    )
+
+    uploadOperations =
+      relationshipResponse.data
+        ?.flatMap(entry => entry.attributes?.uploadOperations ?? [])
+        .filter(Boolean) ?? []
+  }
 
   return uploadOperations
 }

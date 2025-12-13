@@ -81,13 +81,12 @@ const fs_1 = __nccwpck_require__(9896);
 const core_1 = __nccwpck_require__(7484);
 const jwt_1 = __nccwpck_require__(1218);
 const http_1 = __nccwpck_require__(5212);
-const poll_1 = __nccwpck_require__(4697);
 const appMetadata_1 = __nccwpck_require__(6236);
 const lookup_app_id_1 = __nccwpck_require__(4720);
-const MAX_PROCESSING_ATTEMPTS = 20;
+const MAX_PROCESSING_ATTEMPTS = 10;
 const PROCESSING_DELAY_MS = 30000;
 const VISIBILITY_ATTEMPTS = 10;
-const VISIBILITY_DELAY_MS = 10000;
+const VISIBILITY_DELAY_MS = 30000;
 exports.appstoreApi = {
     async upload(params) {
         (0, core_1.info)('Starting App Store API upload backend.');
@@ -231,21 +230,24 @@ async function completeBuildUpload(fileId, token) {
     });
 }
 async function pollBuildProcessing(params) {
-    await (0, poll_1.pollUntil)(() => lookupBuildState(params), state => state === 'VALID' || state === 'PROCESSING', {
-        attempts: VISIBILITY_ATTEMPTS,
-        delayMs: VISIBILITY_DELAY_MS,
-        onRetry: attempt => {
-            (0, core_1.warning)(`Waiting for build ${params.buildNumber} to appear in App Store Connect (attempt ${attempt + 1}/${VISIBILITY_ATTEMPTS}).`);
-        }
-    });
-    await (0, poll_1.pollUntil)(() => lookupBuildState(params), state => state === 'VALID', {
-        attempts: MAX_PROCESSING_ATTEMPTS,
-        delayMs: PROCESSING_DELAY_MS,
-        onRetry: attempt => {
-            (0, core_1.warning)(`Build processing pending (attempt ${attempt + 1}/${MAX_PROCESSING_ATTEMPTS}).`);
-        }
-    });
+    await new Promise(resolve => setTimeout(resolve, 30000));
+    await pollWithBackoff(() => lookupBuildState(params), state => state === 'VALID' || state === 'PROCESSING', VISIBILITY_ATTEMPTS, VISIBILITY_DELAY_MS, `build ${params.buildNumber} to appear in App Store Connect`);
+    await pollWithBackoff(() => lookupBuildState(params), state => state === 'VALID', MAX_PROCESSING_ATTEMPTS, PROCESSING_DELAY_MS, 'build processing to finish');
     (0, core_1.info)('Build upload completed and processing is VALID.');
+}
+async function pollWithBackoff(fn, predicate, attempts, initialDelayMs, label) {
+    let delay = initialDelayMs;
+    for (let attempt = 0; attempt < attempts; attempt++) {
+        const value = await fn();
+        if (predicate(value))
+            return value;
+        if (attempt === attempts - 1)
+            break;
+        (0, core_1.warning)(`Waiting for ${label} (attempt ${attempt + 1}/${attempts}); next retry in ${delay / 1000}s.`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        delay = Math.min(delay * 2, 5 * 60 * 1000); // cap backoff at 5 minutes
+    }
+    throw new Error(`Timed out waiting for ${label}.`);
 }
 async function lookupBuildState(params) {
     const query = new URLSearchParams();

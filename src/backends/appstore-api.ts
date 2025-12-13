@@ -4,14 +4,13 @@ import {warning, info, debug} from '@actions/core'
 import {UploadParams, UploadResult, Uploader} from './types'
 import {generateJwt} from '../auth/jwt'
 import {buildPlatform, fetchJson} from '../utils/http'
-import {pollUntil} from '../utils/poll'
 import {extractAppMetadata} from '../utils/appMetadata'
 import {lookupAppId} from '../utils/lookup-app-id'
 
-const MAX_PROCESSING_ATTEMPTS = 20
+const MAX_PROCESSING_ATTEMPTS = 10
 const PROCESSING_DELAY_MS = 30000
 const VISIBILITY_ATTEMPTS = 10
-const VISIBILITY_DELAY_MS = 10000
+const VISIBILITY_DELAY_MS = 30000
 
 export const appstoreApi: Uploader = {
   async upload(params: UploadParams): Promise<UploadResult> {
@@ -279,37 +278,48 @@ async function pollBuildProcessing(params: {
   platform: string
   token: string
 }): Promise<void> {
-  await pollUntil(
+  await new Promise(resolve => setTimeout(resolve, 30000))
+
+  await pollWithBackoff(
     () => lookupBuildState(params),
     state => state === 'VALID' || state === 'PROCESSING',
-    {
-      attempts: VISIBILITY_ATTEMPTS,
-      delayMs: VISIBILITY_DELAY_MS,
-      onRetry: attempt => {
-        warning(
-          `Waiting for build ${params.buildNumber} to appear in App Store Connect (attempt ${
-            attempt + 1
-          }/${VISIBILITY_ATTEMPTS}).`
-        )
-      }
-    }
+    VISIBILITY_ATTEMPTS,
+    VISIBILITY_DELAY_MS,
+    `build ${params.buildNumber} to appear in App Store Connect`
   )
 
-  await pollUntil(
+  await pollWithBackoff(
     () => lookupBuildState(params),
     state => state === 'VALID',
-    {
-      attempts: MAX_PROCESSING_ATTEMPTS,
-      delayMs: PROCESSING_DELAY_MS,
-      onRetry: attempt => {
-        warning(
-          `Build processing pending (attempt ${attempt + 1}/${MAX_PROCESSING_ATTEMPTS}).`
-        )
-      }
-    }
+    MAX_PROCESSING_ATTEMPTS,
+    PROCESSING_DELAY_MS,
+    'build processing to finish'
   )
 
   info('Build upload completed and processing is VALID.')
+}
+
+async function pollWithBackoff<T>(
+  fn: () => Promise<T>,
+  predicate: (value: T) => boolean,
+  attempts: number,
+  initialDelayMs: number,
+  label: string
+): Promise<T> {
+  let delay = initialDelayMs
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const value = await fn()
+    if (predicate(value)) return value
+    if (attempt === attempts - 1) break
+    warning(
+      `Waiting for ${label} (attempt ${attempt + 1}/${attempts}); next retry in ${
+        delay / 1000
+      }s.`
+    )
+    await new Promise(resolve => setTimeout(resolve, delay))
+    delay = Math.min(delay * 2, 5 * 60 * 1000) // cap backoff at 5 minutes
+  }
+  throw new Error(`Timed out waiting for ${label}.`)
 }
 
 async function lookupBuildState(params: {

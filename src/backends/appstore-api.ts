@@ -58,7 +58,7 @@ export const appstoreApi: Uploader = {
     info('Marked build upload as complete; waiting for processing.')
 
     await pollBuildProcessing({
-      bundleId: metadata.bundleId,
+      appId,
       buildNumber: metadata.buildNumber,
       platform,
       token
@@ -274,7 +274,7 @@ async function completeBuildUpload(
 }
 
 async function pollBuildProcessing(params: {
-  bundleId: string
+  appId: string
   buildNumber: string
   platform: string
   token: string
@@ -313,13 +313,13 @@ async function pollBuildProcessing(params: {
 }
 
 async function lookupBuildState(params: {
-  bundleId: string
+  appId: string
   buildNumber: string
   platform: string
   token: string
 }): Promise<string | undefined> {
   const query = new URLSearchParams()
-  query.set('filter[bundleId]', params.bundleId)
+  query.set('filter[app]', params.appId)
   query.set('filter[version]', params.buildNumber)
   query.set('filter[preReleaseVersion.platform]', params.platform)
 

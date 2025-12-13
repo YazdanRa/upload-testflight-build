@@ -114,7 +114,7 @@ exports.appstoreApi = {
         await completeBuildUpload(buildUpload.fileId, token);
         (0, core_1.info)('Marked build upload as complete; waiting for processing.');
         await pollBuildProcessing({
-            bundleId: metadata.bundleId,
+            appId,
             buildNumber: metadata.buildNumber,
             platform,
             token
@@ -249,7 +249,7 @@ async function pollBuildProcessing(params) {
 }
 async function lookupBuildState(params) {
     const query = new URLSearchParams();
-    query.set('filter[bundleId]', params.bundleId);
+    query.set('filter[app]', params.appId);
     query.set('filter[version]', params.buildNumber);
     query.set('filter[preReleaseVersion.platform]', params.platform);
     const response = await (0, http_1.fetchJson)(`/builds?${query.toString()}`, params.token, 'Failed to query builds for processing state.');

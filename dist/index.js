@@ -88,6 +88,8 @@ const MAX_PROCESSING_ATTEMPTS = 20;
 const PROCESSING_DELAY_MS = 30000;
 const VISIBILITY_ATTEMPTS = 10;
 const VISIBILITY_DELAY_MS = 10000;
+const UPLOAD_OPERATIONS_ATTEMPTS = 10;
+const UPLOAD_OPERATIONS_DELAY_MS = 2000;
 exports.appstoreApi = {
     async upload(params) {
         (0, core_1.info)('Starting App Store API upload backend.');
@@ -140,8 +142,10 @@ async function createBuildUpload(params, token) {
         }
     };
     const response = await (0, http_1.fetchJson)('/buildUploads', token, 'Failed to create App Store build upload.', 'POST', payload);
-    const uploadOperations = response.data.attributes.uploadOperations ??
-        (await fetchUploadOperations(response.data.id, token));
+    const inlineOperations = response.data.attributes.uploadOperations ?? [];
+    const uploadOperations = inlineOperations.length > 0
+        ? inlineOperations
+        : await waitForUploadOperations(response.data.id, token);
     if (!uploadOperations || uploadOperations.length === 0) {
         throw new Error('App Store API returned no upload operations.');
     }
@@ -156,6 +160,15 @@ async function fetchUploadOperations(uploadId, token) {
         ?.flatMap(entry => entry.attributes?.uploadOperations ?? [])
         .filter(Boolean) ?? [];
     return uploadOperations;
+}
+async function waitForUploadOperations(uploadId, token) {
+    return (0, poll_1.pollUntil)(() => fetchUploadOperations(uploadId, token), operations => operations.length > 0, {
+        attempts: UPLOAD_OPERATIONS_ATTEMPTS,
+        delayMs: UPLOAD_OPERATIONS_DELAY_MS,
+        onRetry: attempt => {
+            (0, core_1.warning)(`Waiting for App Store upload operations (attempt ${attempt + 1}/${UPLOAD_OPERATIONS_ATTEMPTS}).`);
+        }
+    });
 }
 async function performUpload(upload, appPath) {
     const buffer = await fs_1.promises.readFile(appPath);

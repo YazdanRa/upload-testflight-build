@@ -12,8 +12,6 @@ const MAX_PROCESSING_ATTEMPTS = 20
 const PROCESSING_DELAY_MS = 30000
 const VISIBILITY_ATTEMPTS = 10
 const VISIBILITY_DELAY_MS = 10000
-const UPLOAD_OPERATIONS_ATTEMPTS = 30
-const UPLOAD_OPERATIONS_DELAY_MS = 5000
 
 export const appstoreApi: Uploader = {
   async upload(params: UploadParams): Promise<UploadResult> {
@@ -44,7 +42,9 @@ export const appstoreApi: Uploader = {
         appId,
         platform,
         cfBundleShortVersionString: metadata.shortVersion,
-        cfBundleVersion: metadata.buildNumber
+        cfBundleVersion: metadata.buildNumber,
+        fileName,
+        fileSize
       },
       token
     )
@@ -87,6 +87,8 @@ async function createBuildUpload(
     platform: string
     cfBundleShortVersionString: string
     cfBundleVersion: string
+    fileName: string
+    fileSize: number
   },
   token: string
 ): Promise<BuildUpload> {
@@ -128,7 +130,12 @@ async function createBuildUpload(
   const uploadOperations =
     inlineOperations.length > 0
       ? inlineOperations
-      : await waitForUploadOperations(response.data.id, token)
+      : await createBuildUploadFile(
+          response.data.id,
+          params.fileName,
+          params.fileSize,
+          token
+        )
   if (!uploadOperations || uploadOperations.length === 0) {
     throw new Error('App Store API returned no upload operations.')
   }
@@ -139,60 +146,42 @@ async function createBuildUpload(
   }
 }
 
-async function fetchUploadOperations(
+async function createBuildUploadFile(
   uploadId: string,
+  fileName: string,
+  fileSize: number,
   token: string
 ): Promise<UploadOperation[]> {
   const response = await fetchJson<{
-    data?: {attributes?: {uploadOperations?: UploadOperation[]}}
+    data?: {
+      id: string
+      attributes?: {uploadOperations?: UploadOperation[]}
+    }
   }>(
-    `/buildUploads/${uploadId}?fields[buildUploads]=uploadOperations`,
+    '/buildUploadFiles',
     token,
-    'Failed to fetch App Store build upload operations.'
-  )
-
-  let uploadOperations: UploadOperation[] = [
-    ...(response.data?.attributes?.uploadOperations ?? [])
-  ]
-
-  // Fallback: some responses have operations only on the relationship endpoint.
-  if (uploadOperations.length === 0) {
-    const relationshipResponse = await fetchJson<{
-      data?: Array<{attributes?: {uploadOperations?: UploadOperation[]}}>
-    }>(
-      `/buildUploads/${uploadId}/buildUploadFiles?fields[buildUploadFiles]=uploadOperations`,
-      token,
-      'Failed to fetch App Store build upload operations.'
-    )
-
-    uploadOperations =
-      relationshipResponse.data
-        ?.flatMap(entry => entry.attributes?.uploadOperations ?? [])
-        .filter(Boolean) ?? []
-  }
-
-  return uploadOperations
-}
-
-async function waitForUploadOperations(
-  uploadId: string,
-  token: string
-): Promise<UploadOperation[]> {
-  return pollUntil(
-    () => fetchUploadOperations(uploadId, token),
-    operations => operations.length > 0,
+    'Failed to create App Store build upload file.',
+    'POST',
     {
-      attempts: UPLOAD_OPERATIONS_ATTEMPTS,
-      delayMs: UPLOAD_OPERATIONS_DELAY_MS,
-      onRetry: attempt => {
-        warning(
-          `Waiting for App Store upload operations (attempt ${
-            attempt + 1
-          }/${UPLOAD_OPERATIONS_ATTEMPTS}).`
-        )
+      data: {
+        type: 'buildUploadFiles',
+        attributes: {
+          fileName,
+          fileSize
+        },
+        relationships: {
+          buildUpload: {
+            data: {
+              type: 'buildUploads',
+              id: uploadId
+            }
+          }
+        }
       }
     }
   )
+
+  return response.data?.attributes?.uploadOperations ?? []
 }
 
 async function performUpload(

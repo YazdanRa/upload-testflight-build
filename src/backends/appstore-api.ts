@@ -1,6 +1,5 @@
 import {basename} from 'path'
 import {statSync, promises as fs} from 'fs'
-import {createHash} from 'crypto'
 import {warning, info, debug} from '@actions/core'
 import {UploadParams, UploadResult, Uploader} from './types'
 import {generateJwt} from '../auth/jwt'
@@ -55,12 +54,7 @@ export const appstoreApi: Uploader = {
 
     await performUpload(buildUpload, params.appPath)
     info('Finished uploading build chunks.')
-    await completeBuildUpload(
-      buildUpload.id,
-      buildUpload.fileId,
-      params.appPath,
-      token
-    )
+    await completeBuildUpload(buildUpload.fileId, token)
     info('Marked build upload as complete; waiting for processing.')
 
     await pollBuildProcessing({
@@ -259,14 +253,9 @@ async function performUpload(
 }
 
 async function completeBuildUpload(
-  uploadId: string,
   fileId: string,
-  appPath: string,
   token: string
 ): Promise<void> {
-  const buffer = await fs.readFile(appPath)
-  const md5 = createHash('md5').update(buffer).digest('hex')
-
   await fetchJson(
     `/buildUploadFiles/${fileId}`,
     token,
@@ -277,16 +266,7 @@ async function completeBuildUpload(
         id: fileId,
         type: 'buildUploadFiles',
         attributes: {
-          uploaded: true,
-          sourceFileChecksum: md5
-        },
-        relationships: {
-          buildUpload: {
-            data: {
-              type: 'buildUploads',
-              id: uploadId
-            }
-          }
+          uploaded: true
         }
       }
     }

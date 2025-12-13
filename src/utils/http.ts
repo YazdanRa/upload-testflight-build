@@ -24,6 +24,7 @@ export async function fetchJson<T = unknown>(
   const headers = {
     Authorization: `Bearer ${token}`,
     'Content-Type': 'application/json',
+    'Accept-Language': 'en',
     ...extraHeaders
   }
 

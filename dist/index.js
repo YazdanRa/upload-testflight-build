@@ -401,6 +401,7 @@ async function fetchJson(path, token, errorMessage, method = 'GET', body, extraH
     const headers = {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
+        'Accept-Language': 'en',
         ...extraHeaders
     };
     const safeHeaders = {

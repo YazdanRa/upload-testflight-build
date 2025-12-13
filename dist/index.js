@@ -160,7 +160,9 @@ async function createBuildUploadFile(uploadId, fileName, fileSize, token) {
             type: 'buildUploadFiles',
             attributes: {
                 fileName,
-                fileSize
+                fileSize,
+                assetType: 'ASSET',
+                uti: 'com.apple.ipa'
             },
             relationships: {
                 buildUpload: {

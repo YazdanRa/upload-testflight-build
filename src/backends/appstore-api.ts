@@ -146,7 +146,7 @@ async function fetchUploadOperations(
   const response = await fetchJson<{
     data?: {attributes?: {uploadOperations?: UploadOperation[]}}
   }>(
-    `/buildUploads/${uploadId}`,
+    `/buildUploads/${uploadId}?fields[buildUploads]=uploadOperations`,
     token,
     'Failed to fetch App Store build upload operations.'
   )
@@ -160,7 +160,7 @@ async function fetchUploadOperations(
     const relationshipResponse = await fetchJson<{
       data?: Array<{attributes?: {uploadOperations?: UploadOperation[]}}>
     }>(
-      `/buildUploads/${uploadId}/buildUploadFiles`,
+      `/buildUploads/${uploadId}/buildUploadFiles?fields[buildUploadFiles]=uploadOperations`,
       token,
       'Failed to fetch App Store build upload operations.'
     )

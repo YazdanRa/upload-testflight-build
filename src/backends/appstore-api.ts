@@ -1,5 +1,6 @@
 import {basename} from 'path'
 import {statSync, promises as fs} from 'fs'
+import {createHash} from 'crypto'
 import {warning, info, debug} from '@actions/core'
 import {UploadParams, UploadResult, Uploader} from './types'
 import {generateJwt} from '../auth/jwt'
@@ -54,7 +55,12 @@ export const appstoreApi: Uploader = {
 
     await performUpload(buildUpload, params.appPath)
     info('Finished uploading build chunks.')
-    await completeBuildUpload(buildUpload.id, token)
+    await completeBuildUpload(
+      buildUpload.id,
+      buildUpload.fileId,
+      params.appPath,
+      token
+    )
     info('Marked build upload as complete; waiting for processing.')
 
     await pollBuildProcessing({
@@ -70,6 +76,7 @@ export const appstoreApi: Uploader = {
 
 type BuildUpload = {
   id: string
+  fileId: string
   uploadOperations: UploadOperation[]
 }
 
@@ -127,21 +134,41 @@ async function createBuildUpload(
   )
 
   const inlineOperations = response.data.attributes.uploadOperations ?? []
-  const uploadOperations =
-    inlineOperations.length > 0
-      ? inlineOperations
-      : await createBuildUploadFile(
-          response.data.id,
-          params.fileName,
-          params.fileSize,
-          token
-        )
-  if (!uploadOperations || uploadOperations.length === 0) {
+  let fileId: string | undefined
+  let uploadOperations: UploadOperation[] = []
+
+  if (inlineOperations.length > 0) {
+    uploadOperations = inlineOperations
+    // Still create a buildUploadFile to obtain the fileId required for commit.
+    const created = await createBuildUploadFile(
+      response.data.id,
+      params.fileName,
+      params.fileSize,
+      token
+    )
+    fileId = created.fileId
+    // If inline operations were empty for some reason, fall back to created ops.
+    if (uploadOperations.length === 0) {
+      uploadOperations = created.uploadOperations
+    }
+  } else {
+    const created = await createBuildUploadFile(
+      response.data.id,
+      params.fileName,
+      params.fileSize,
+      token
+    )
+    fileId = created.fileId
+    uploadOperations = created.uploadOperations
+  }
+
+  if (!uploadOperations || uploadOperations.length === 0 || !fileId) {
     throw new Error('App Store API returned no upload operations.')
   }
 
   return {
     id: response.data.id,
+    fileId,
     uploadOperations
   }
 }
@@ -151,7 +178,7 @@ async function createBuildUploadFile(
   fileName: string,
   fileSize: number,
   token: string
-): Promise<UploadOperation[]> {
+): Promise<{fileId: string; uploadOperations: UploadOperation[]}> {
   const response = await fetchJson<{
     data?: {
       id: string
@@ -183,7 +210,14 @@ async function createBuildUploadFile(
     }
   )
 
-  return response.data?.attributes?.uploadOperations ?? []
+  if (!response.data?.id) {
+    throw new Error('App Store API buildUploadFiles response missing id.')
+  }
+
+  return {
+    fileId: response.data.id,
+    uploadOperations: response.data.attributes?.uploadOperations ?? []
+  }
 }
 
 async function performUpload(
@@ -226,13 +260,36 @@ async function performUpload(
 
 async function completeBuildUpload(
   uploadId: string,
+  fileId: string,
+  appPath: string,
   token: string
 ): Promise<void> {
+  const buffer = await fs.readFile(appPath)
+  const md5 = createHash('md5').update(buffer).digest('hex')
+
   await fetchJson(
-    `/buildUploads/${uploadId}/complete`,
+    `/buildUploadFiles/${fileId}`,
     token,
     'Failed to finalize App Store build upload.',
-    'POST'
+    'PATCH',
+    {
+      data: {
+        id: fileId,
+        type: 'buildUploadFiles',
+        attributes: {
+          uploaded: true,
+          sourceFileChecksum: md5
+        },
+        relationships: {
+          buildUpload: {
+            data: {
+              type: 'buildUploads',
+              id: uploadId
+            }
+          }
+        }
+      }
+    }
   )
 }
 

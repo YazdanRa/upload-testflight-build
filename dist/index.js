@@ -78,6 +78,7 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.appstoreApi = void 0;
 const path_1 = __nccwpck_require__(6928);
 const fs_1 = __nccwpck_require__(9896);
+const crypto_1 = __nccwpck_require__(6982);
 const core_1 = __nccwpck_require__(7484);
 const jwt_1 = __nccwpck_require__(1218);
 const http_1 = __nccwpck_require__(5212);
@@ -111,7 +112,7 @@ exports.appstoreApi = {
         (0, core_1.debug)(`Created build upload id=${buildUpload.id}, operations=${buildUpload.uploadOperations.length}`);
         await performUpload(buildUpload, params.appPath);
         (0, core_1.info)('Finished uploading build chunks.');
-        await completeBuildUpload(buildUpload.id, token);
+        await completeBuildUpload(buildUpload.id, buildUpload.fileId, params.appPath, token);
         (0, core_1.info)('Marked build upload as complete; waiting for processing.');
         await pollBuildProcessing({
             bundleId: metadata.bundleId,
@@ -143,14 +144,29 @@ async function createBuildUpload(params, token) {
     };
     const response = await (0, http_1.fetchJson)('/buildUploads', token, 'Failed to create App Store build upload.', 'POST', payload);
     const inlineOperations = response.data.attributes.uploadOperations ?? [];
-    const uploadOperations = inlineOperations.length > 0
-        ? inlineOperations
-        : await createBuildUploadFile(response.data.id, params.fileName, params.fileSize, token);
-    if (!uploadOperations || uploadOperations.length === 0) {
+    let fileId;
+    let uploadOperations = [];
+    if (inlineOperations.length > 0) {
+        uploadOperations = inlineOperations;
+        // Still create a buildUploadFile to obtain the fileId required for commit.
+        const created = await createBuildUploadFile(response.data.id, params.fileName, params.fileSize, token);
+        fileId = created.fileId;
+        // If inline operations were empty for some reason, fall back to created ops.
+        if (uploadOperations.length === 0) {
+            uploadOperations = created.uploadOperations;
+        }
+    }
+    else {
+        const created = await createBuildUploadFile(response.data.id, params.fileName, params.fileSize, token);
+        fileId = created.fileId;
+        uploadOperations = created.uploadOperations;
+    }
+    if (!uploadOperations || uploadOperations.length === 0 || !fileId) {
         throw new Error('App Store API returned no upload operations.');
     }
     return {
         id: response.data.id,
+        fileId,
         uploadOperations
     };
 }
@@ -174,7 +190,13 @@ async function createBuildUploadFile(uploadId, fileName, fileSize, token) {
             }
         }
     });
-    return response.data?.attributes?.uploadOperations ?? [];
+    if (!response.data?.id) {
+        throw new Error('App Store API buildUploadFiles response missing id.');
+    }
+    return {
+        fileId: response.data.id,
+        uploadOperations: response.data.attributes?.uploadOperations ?? []
+    };
 }
 async function performUpload(upload, appPath) {
     const buffer = await fs_1.promises.readFile(appPath);
@@ -198,8 +220,27 @@ async function performUpload(upload, appPath) {
         (0, core_1.debug)(`Uploaded chunk ${index + 1}/${upload.uploadOperations.length} (${slice.length} bytes).`);
     }
 }
-async function completeBuildUpload(uploadId, token) {
-    await (0, http_1.fetchJson)(`/buildUploads/${uploadId}/complete`, token, 'Failed to finalize App Store build upload.', 'POST');
+async function completeBuildUpload(uploadId, fileId, appPath, token) {
+    const buffer = await fs_1.promises.readFile(appPath);
+    const md5 = (0, crypto_1.createHash)('md5').update(buffer).digest('hex');
+    await (0, http_1.fetchJson)(`/buildUploadFiles/${fileId}`, token, 'Failed to finalize App Store build upload.', 'PATCH', {
+        data: {
+            id: fileId,
+            type: 'buildUploadFiles',
+            attributes: {
+                uploaded: true,
+                sourceFileChecksum: md5
+            },
+            relationships: {
+                buildUpload: {
+                    data: {
+                        type: 'buildUploads',
+                        id: uploadId
+                    }
+                }
+            }
+        }
+    });
 }
 async function pollBuildProcessing(params) {
     await (0, poll_1.pollUntil)(() => lookupBuildState(params), state => state === 'VALID' || state === 'PROCESSING', {

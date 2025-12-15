@@ -22,7 +22,7 @@
     api-key-id: ${{ vars.APPSTORE_API_KEY_ID }}
     api-private-key: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
     release-notes: ${{ steps.generate_notes.outputs.whats_new }} # optional
-    backend: altool # optional: AppStoreAPI | transporter | altool (default: altool; case insensitive)
+    backend: AppStoreAPI # optional: AppStoreAPI | transporter | altool (default: AppStoreAPI; case insensitive)
 ```
 
 > [!IMPORTANT]

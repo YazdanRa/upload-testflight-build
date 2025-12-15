@@ -632,7 +632,8 @@ async function lookupAppId(bundleId, token) {
     const response = await (0, http_1.fetchJson)(
     // Docs: https://developer.apple.com/documentation/appstoreconnectapi/apps
     `/apps?${params.toString()}`, token, 'Failed to locate App Store Connect application.');
-    const ids = (response.data ?? []).map(app => app.id).filter(Boolean);
+    const matches = (response.data ?? []).filter(app => app.attributes?.bundleId === bundleId);
+    const ids = matches.map(app => app.id).filter(Boolean);
     if (ids.length === 0) {
         throw new Error(`Unable to find App Store Connect app for bundle id ${bundleId}.`);
     }

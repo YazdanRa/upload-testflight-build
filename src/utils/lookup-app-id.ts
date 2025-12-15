@@ -8,7 +8,7 @@ export async function lookupAppId(
   params.set('filter[bundleId]', bundleId)
 
   const response = await fetchJson<{
-    data?: Array<{id?: string}>
+    data?: Array<{id?: string; attributes?: {bundleId?: string}}>
   }>(
     // Docs: https://developer.apple.com/documentation/appstoreconnectapi/apps
     `/apps?${params.toString()}`,
@@ -16,7 +16,11 @@ export async function lookupAppId(
     'Failed to locate App Store Connect application.'
   )
 
-  const ids = (response.data ?? []).map(app => app.id).filter(Boolean)
+  const matches = (response.data ?? []).filter(
+    app => app.attributes?.bundleId === bundleId
+  )
+
+  const ids = matches.map(app => app.id).filter(Boolean)
 
   if (ids.length === 0) {
     throw new Error(

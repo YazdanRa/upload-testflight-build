@@ -274,8 +274,10 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.transporter = void 0;
 exports.uploadApp = uploadApp;
 const exec_1 = __nccwpck_require__(5236);
-async function uploadApp(appPath, appType, apiKeyId, issuerId, options) {
-    const transporterBinary = '/usr/local/itms/bin/iTMSTransporter';
+async function uploadApp(appPath, appType, apiKeyId, issuerId, transporterExecutablePath, options) {
+    const transporterBinary = transporterExecutablePath && transporterExecutablePath.trim().length > 0
+        ? transporterExecutablePath.trim()
+        : '/usr/local/itms/bin/iTMSTransporter';
     const args = [
         '-m',
         'upload',
@@ -295,7 +297,7 @@ async function uploadApp(appPath, appType, apiKeyId, issuerId, options) {
 }
 exports.transporter = {
     async upload(params, execOptions) {
-        await uploadApp(params.appPath, params.appType, params.apiKeyId, params.issuerId, execOptions);
+        await uploadApp(params.appPath, params.appType, params.apiKeyId, params.issuerId, params.transporterExecutablePath, execOptions);
         return { backend: 'transporter', log: execOptions ? '' : undefined };
     }
 };
@@ -28774,6 +28776,7 @@ async function run() {
         const appType = (0, core_1.getInput)('app-type');
         const releaseNotes = (0, core_1.getInput)('release-notes');
         const backendInput = (0, core_1.getInput)('backend') || 'altool';
+        const transporterExecutablePath = (0, core_1.getInput)('transporter-executable-path') || undefined;
         const backend = (0, normalize_backend_1.normalizeBackend)(backendInput);
         (0, core_1.info)(`Using upload backend: ${backend} for appPath=${appPath}, appType=${appType}`);
         const factories = {
@@ -28801,7 +28804,8 @@ async function run() {
             appType,
             apiKeyId,
             issuerId,
-            apiPrivateKey
+            apiPrivateKey,
+            transporterExecutablePath
         }, execOptions);
         (0, core_1.info)(`Upload finished via backend: ${result.backend}`);
         await (0, releaseNotes_1.submitReleaseNotesIfProvided)({

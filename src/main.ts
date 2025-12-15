@@ -23,6 +23,8 @@ async function run(): Promise<void> {
     const appType: string = getInput('app-type')
     const releaseNotes: string = getInput('release-notes')
     const backendInput: string = getInput('backend') || 'altool'
+    const transporterExecutablePath: string | undefined =
+      getInput('transporter-executable-path') || undefined
 
     const backend = normalizeBackend(backendInput)
     info(
@@ -58,7 +60,8 @@ async function run(): Promise<void> {
         appType,
         apiKeyId,
         issuerId,
-        apiPrivateKey
+        apiPrivateKey,
+        transporterExecutablePath
       },
       execOptions
     )

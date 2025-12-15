@@ -7,9 +7,13 @@ export async function uploadApp(
   appType: string,
   apiKeyId: string,
   issuerId: string,
+  transporterExecutablePath: string | undefined,
   options?: ExecOptions
 ): Promise<void> {
-  const transporterBinary = '/usr/local/itms/bin/iTMSTransporter'
+  const transporterBinary =
+    transporterExecutablePath && transporterExecutablePath.trim().length > 0
+      ? transporterExecutablePath.trim()
+      : '/usr/local/itms/bin/iTMSTransporter'
 
   const args: string[] = [
     '-m',
@@ -41,6 +45,7 @@ export const transporter: Uploader = {
       params.appType,
       params.apiKeyId,
       params.issuerId,
+      params.transporterExecutablePath,
       execOptions
     )
 

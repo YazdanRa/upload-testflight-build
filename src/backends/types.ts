@@ -8,6 +8,7 @@ export type UploadParams = {
   apiKeyId: string
   issuerId: string
   apiPrivateKey: string
+  transporterExecutablePath?: string
 }
 
 export type UploadResult = {

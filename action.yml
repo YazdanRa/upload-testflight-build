@@ -25,6 +25,9 @@ inputs:
     description: 'Upload backend to use (appstore-api | transporter | altool)'
     required: false
     default: 'appstore-api'
+  transporter-executable-path:
+    description: 'Optional path to the iTMSTransporter executable (defaults to /usr/local/itms/bin/iTMSTransporter)'
+    required: false
 outputs:
   transporter-response:
     description: 'output from chosen upload backend'

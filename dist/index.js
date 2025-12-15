@@ -76,6 +76,7 @@ exports.altool = {
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.appstoreApi = void 0;
+exports.lookupBuildState = lookupBuildState;
 const path_1 = __nccwpck_require__(6928);
 const fs_1 = __nccwpck_require__(9896);
 const core_1 = __nccwpck_require__(7484);
@@ -577,11 +578,14 @@ async function lookupAppId(bundleId, token) {
     const params = new URLSearchParams();
     params.set('filter[bundleId]', bundleId);
     const response = await (0, http_1.fetchJson)(`/apps?${params.toString()}`, token, 'Failed to locate App Store Connect application.');
-    const appId = response.data?.[0]?.id;
-    if (!appId) {
+    const ids = (response.data ?? []).map(app => app.id).filter(Boolean);
+    if (ids.length === 0) {
         throw new Error(`Unable to find App Store Connect app for bundle id ${bundleId}.`);
     }
-    return appId;
+    if (ids.length > 1) {
+        throw new Error(`Multiple apps found for bundle id ${bundleId}; please disambiguate.`);
+    }
+    return ids[0];
 }
 
 

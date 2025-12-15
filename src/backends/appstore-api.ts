@@ -322,7 +322,7 @@ async function pollWithBackoff<T>(
   throw new Error(`Timed out waiting for ${label}.`)
 }
 
-async function lookupBuildState(params: {
+export async function lookupBuildState(params: {
   appId: string
   buildNumber: string
   platform: string

@@ -1,4 +1,4 @@
-import {describe, it, expect} from 'vitest'
+import {describe, it, expect, vi} from 'vitest'
 import {pollUntil} from '../src/utils/poll'
 
 describe('pollUntil', () => {
@@ -23,5 +23,18 @@ describe('pollUntil', () => {
       pollUntil(async () => undefined, Boolean, {attempts: 2, delayMs: 5})
     ).rejects.toThrow('Exceeded maximum attempts')
     expect(Date.now() - start).toBeGreaterThanOrEqual(10)
+  })
+
+  it('honors onRetry callback', async () => {
+    const onRetry = vi.fn()
+    await expect(
+      pollUntil(async () => undefined, Boolean, {
+        attempts: 2,
+        delayMs: 1,
+        onRetry
+      })
+    ).rejects.toThrow()
+
+    expect(onRetry).toHaveBeenCalledTimes(2)
   })
 })

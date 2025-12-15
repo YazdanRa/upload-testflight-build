@@ -15,12 +15,19 @@ export async function lookupAppId(
     'Failed to locate App Store Connect application.'
   )
 
-  const appId = response.data?.[0]?.id
-  if (!appId) {
+  const ids = (response.data ?? []).map(app => app.id).filter(Boolean)
+
+  if (ids.length === 0) {
     throw new Error(
       `Unable to find App Store Connect app for bundle id ${bundleId}.`
     )
   }
 
-  return appId
+  if (ids.length > 1) {
+    throw new Error(
+      `Multiple apps found for bundle id ${bundleId}; please disambiguate.`
+    )
+  }
+
+  return ids[0] as string
 }

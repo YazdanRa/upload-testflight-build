@@ -28,6 +28,9 @@ inputs:
   transporter-executable-path:
     description: 'Optional path to the iTMSTransporter executable (defaults to /usr/local/itms/bin/iTMSTransporter)'
     required: false
+  uses-non-exempt-encryption:
+    description: 'Boolean string. Set to "true" if your build uses non-exempt encryption; "false" otherwise.'
+    required: false
 outputs:
   transporter-response:
     description: 'output from chosen upload backend'

@@ -1,6 +1,6 @@
 import {getInput, setOutput, setFailed, info} from '@actions/core'
 import {platform} from 'os'
-import {submitReleaseNotesIfProvided} from './releaseNotes'
+import {submitBuildMetadataUpdates} from './buildMetadata'
 import {installPrivateKey, deleteAllPrivateKeys} from './utils/keys'
 import {UploadFactory} from './backends/types'
 import {transporter} from './backends/transporter'
@@ -22,6 +22,9 @@ async function run(): Promise<void> {
     const appPath: string = getInput('app-path')
     const appType: string = getInput('app-type')
     const releaseNotes: string = getInput('release-notes')
+    const usesNonExemptEncryptionInput: string = getInput(
+      'uses-non-exempt-encryption'
+    )
     const backendInput: string = getInput('backend') || 'appstore-api'
     const transporterExecutablePath: string | undefined =
       getInput('transporter-executable-path') || undefined
@@ -66,8 +69,9 @@ async function run(): Promise<void> {
       execOptions
     )
     info(`Upload finished via backend: ${result.backend}`)
-    await submitReleaseNotesIfProvided({
+    await submitBuildMetadataUpdates({
       releaseNotes,
+      usesNonExemptEncryptionInput,
       appPath,
       appType,
       issuerId,

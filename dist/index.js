@@ -76,7 +76,6 @@ exports.altool = {
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.appstoreApi = void 0;
-exports.lookupBuildState = lookupBuildState;
 const path_1 = __nccwpck_require__(6928);
 const fs_1 = __nccwpck_require__(9896);
 const core_1 = __nccwpck_require__(7484);
@@ -84,6 +83,7 @@ const jwt_1 = __nccwpck_require__(1218);
 const http_1 = __nccwpck_require__(5212);
 const appMetadata_1 = __nccwpck_require__(6236);
 const lookup_app_id_1 = __nccwpck_require__(4720);
+const buildLookup_1 = __nccwpck_require__(7920);
 const MAX_PROCESSING_ATTEMPTS = 10;
 const PROCESSING_DELAY_MS = 30000;
 const VISIBILITY_ATTEMPTS = 10;
@@ -237,38 +237,14 @@ async function completeBuildUpload(fileId, token) {
     });
 }
 async function pollBuildProcessing(params) {
-    await new Promise(resolve => setTimeout(resolve, 30000));
-    await pollWithBackoff(() => lookupBuildState(params), state => state === 'VALID' || state === 'PROCESSING', VISIBILITY_ATTEMPTS, VISIBILITY_DELAY_MS, `build ${params.buildNumber} to appear in App Store Connect`);
-    await pollWithBackoff(() => lookupBuildState(params), state => state === 'VALID', MAX_PROCESSING_ATTEMPTS, PROCESSING_DELAY_MS, 'build processing to finish');
+    await (0, buildLookup_1.waitForBuildProcessing)(params, {
+        visibilityAttempts: VISIBILITY_ATTEMPTS,
+        visibilityDelayMs: VISIBILITY_DELAY_MS,
+        processingAttempts: MAX_PROCESSING_ATTEMPTS,
+        processingDelayMs: PROCESSING_DELAY_MS,
+        onRetry: message => (0, core_1.warning)(`Waiting for build ${params.buildNumber}: ${message}`)
+    });
     (0, core_1.info)('Build upload completed and processing is VALID.');
-}
-async function pollWithBackoff(fn, predicate, attempts, initialDelayMs, label) {
-    let delay = initialDelayMs;
-    for (let attempt = 0; attempt < attempts; attempt++) {
-        const value = await fn();
-        if (predicate(value))
-            return value;
-        if (attempt === attempts - 1)
-            break;
-        (0, core_1.warning)(`Waiting for ${label} (attempt ${attempt + 1}/${attempts}); next retry in ${delay / 1000}s.`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-        delay = Math.min(delay * 2, 5 * 60 * 1000); // cap backoff at 5 minutes
-    }
-    throw new Error(`Timed out waiting for ${label}.`);
-}
-async function lookupBuildState(params) {
-    const query = new URLSearchParams();
-    query.set('filter[app]', params.appId);
-    query.set('filter[version]', params.buildNumber);
-    query.set('filter[preReleaseVersion.platform]', params.platform);
-    const response = await (0, http_1.fetchJson)(
-    // Docs: https://developer.apple.com/documentation/appstoreconnectapi/builds
-    `/builds?${query.toString()}`, params.token, 'Failed to query builds for processing state.');
-    const state = response.data?.[0]?.attributes?.processingState;
-    if (state) {
-        (0, core_1.debug)(`Build processing state: ${state}`);
-    }
-    return state;
 }
 
 
@@ -314,66 +290,52 @@ exports.transporter = {
 
 /***/ }),
 
-/***/ 1396:
+/***/ 2445:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
 "use strict";
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.submitReleaseNotesIfProvided = submitReleaseNotesIfProvided;
+exports.submitBuildMetadataUpdates = submitBuildMetadataUpdates;
 const core_1 = __nccwpck_require__(7484);
 const jwt_1 = __nccwpck_require__(1218);
 const appMetadata_1 = __nccwpck_require__(6236);
 const http_1 = __nccwpck_require__(5212);
+const lookup_app_id_1 = __nccwpck_require__(4720);
+const buildLookup_1 = __nccwpck_require__(7920);
 const poll_1 = __nccwpck_require__(4697);
-const MAX_ATTEMPTS = 20;
-const RETRY_DELAY_MS = 30000;
-async function submitReleaseNotesIfProvided(params) {
+async function submitBuildMetadataUpdates(params) {
     const trimmed = params.releaseNotes.trim();
-    if (trimmed === '') {
-        (0, core_1.info)('No release note provided. Skipping TestFlight metadata update.');
+    const wantsReleaseNotes = trimmed !== '';
+    const parsedEncryption = parseUsesNonExemptEncryption(params.usesNonExemptEncryptionInput);
+    const wantsEncryptionUpdate = parsedEncryption !== undefined;
+    if (!wantsReleaseNotes && !wantsEncryptionUpdate) {
+        (0, core_1.info)('No release note or encryption compliance requested. Skipping TestFlight metadata update.');
         return;
     }
     const metadata = await (0, appMetadata_1.extractAppMetadata)(params.appPath);
     const token = (0, jwt_1.generateJwt)(params.issuerId, params.apiKeyId, params.apiPrivateKey);
     const platform = (0, http_1.buildPlatform)(params.appType);
-    const appId = await lookupAppId(metadata.bundleId, token);
-    const buildId = await lookupBuildId(appId, metadata.buildNumber, platform, token);
-    const localizationId = await lookupLocalizationId(buildId, token);
-    await updateReleaseNotes(localizationId, trimmed, token);
-}
-async function lookupAppId(bundleId, token) {
-    const params = new URLSearchParams();
-    params.set('filter[bundleId]', bundleId);
-    const response = await (0, http_1.fetchJson)(
-    // Docs: https://developer.apple.com/documentation/appstoreconnectapi/apps
-    `/apps?${params.toString()}`, token, 'Failed to locate App Store Connect application.');
-    const appId = response.data?.[0]?.id;
-    if (!appId) {
-        throw new Error(`Unable to find App Store Connect app for bundle id ${bundleId}.`);
-    }
-    return appId;
-}
-async function lookupBuildId(appId, buildNumber, platform, token) {
-    const params = new URLSearchParams();
-    params.set('filter[app]', appId);
-    params.set('filter[version]', buildNumber);
-    params.set('filter[preReleaseVersion.platform]', platform);
-    const result = await (0, poll_1.pollUntil)(async () => {
-        const response = await (0, http_1.fetchJson)(
-        // Docs: https://developer.apple.com/documentation/appstoreconnectapi/builds
-        `/builds?${params.toString()}`, token, 'Failed to query builds for release note update.');
-        return response.data?.[0]?.id;
-    }, Boolean, {
-        attempts: MAX_ATTEMPTS,
-        delayMs: RETRY_DELAY_MS,
-        onRetry: attempt => {
-            (0, core_1.warning)(`Build ${buildNumber} not yet visible in App Store Connect (attempt ${attempt + 1}/${MAX_ATTEMPTS}). Retrying in ${Math.round(RETRY_DELAY_MS / 1000)}s`);
-        }
+    const appId = await (0, lookup_app_id_1.lookupAppId)(metadata.bundleId, token);
+    const buildId = await (0, buildLookup_1.lookupBuildIdWithRetry)({
+        appId,
+        buildNumber: metadata.buildNumber,
+        platform,
+        token
+    }, 20, 30000, attempt => {
+        (0, core_1.warning)(`Build ${metadata.buildNumber} not yet visible in App Store Connect (attempt ${attempt + 1}/20). Retrying in ${Math.round(30000 / 1000)}s`);
     });
-    return result;
+    if (wantsReleaseNotes) {
+        const localizationId = await lookupLocalizationId(buildId, token);
+        await updateReleaseNotes(localizationId, trimmed, token);
+    }
+    if (wantsEncryptionUpdate) {
+        await updateEncryptionCompliance(buildId, parsedEncryption, token);
+    }
 }
 async function lookupLocalizationId(buildId, token) {
+    const MAX_ATTEMPTS = 20;
+    const RETRY_DELAY_MS = 30000;
     const result = await (0, poll_1.pollUntil)(async () => {
         const response = await (0, http_1.fetchJson)(
         // Docs: https://developer.apple.com/documentation/appstoreconnectapi/betabuildlocalizations
@@ -402,6 +364,30 @@ async function updateReleaseNotes(localizationId, releaseNotes, token) {
     // Docs: https://developer.apple.com/documentation/appstoreconnectapi/betabuildlocalizations
     `/betaBuildLocalizations/${localizationId}`, token, 'Failed to update TestFlight release note.', 'PATCH', payload);
     (0, core_1.info)('Successfully updated TestFlight release note.');
+}
+async function updateEncryptionCompliance(buildId, usesNonExemptEncryption, token) {
+    await (0, http_1.fetchJson)(
+    // Docs: https://developer.apple.com/documentation/appstoreconnectapi/builds
+    `/builds/${buildId}`, token, 'Failed to update encryption compliance for build.', 'PATCH', {
+        data: {
+            id: buildId,
+            type: 'builds',
+            attributes: {
+                usesNonExemptEncryption
+            }
+        }
+    });
+    (0, core_1.info)(`Set usesNonExemptEncryption=${usesNonExemptEncryption} for build ${buildId}.`);
+}
+function parseUsesNonExemptEncryption(value) {
+    if (!value)
+        return undefined;
+    const normalized = value.trim().toLowerCase();
+    if (normalized === 'true')
+        return true;
+    if (normalized === 'false')
+        return false;
+    throw new Error(`Invalid uses-non-exempt-encryption value "${value}". Use "true" or "false".`);
 }
 
 
@@ -455,6 +441,56 @@ async function readPlistAsJson(plistPath) {
         }
     });
     return output;
+}
+
+
+/***/ }),
+
+/***/ 7920:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.lookupBuildIdWithRetry = lookupBuildIdWithRetry;
+exports.lookupBuildState = lookupBuildState;
+exports.waitForBuildProcessing = waitForBuildProcessing;
+const http_1 = __nccwpck_require__(5212);
+const poll_1 = __nccwpck_require__(4697);
+const DEFAULT_ATTEMPTS = 20;
+const DEFAULT_DELAY_MS = 30000;
+async function lookupBuildIdWithRetry(params, attempts = DEFAULT_ATTEMPTS, delayMs = DEFAULT_DELAY_MS, onRetry) {
+    const query = buildFilterQuery(params);
+    const result = await (0, poll_1.pollUntil)(async () => {
+        const response = await (0, http_1.fetchJson)(
+        // Docs: https://developer.apple.com/documentation/appstoreconnectapi/builds
+        `/builds?${query}`, params.token, 'Failed to query builds.');
+        return response.data?.[0]?.id;
+    }, Boolean, { attempts, delayMs, onRetry });
+    return result;
+}
+async function lookupBuildState(params) {
+    const query = buildFilterQuery(params);
+    const response = await (0, http_1.fetchJson)(
+    // Docs: https://developer.apple.com/documentation/appstoreconnectapi/builds
+    `/builds?${query}`, params.token, 'Failed to query builds for processing state.');
+    return response.data?.[0]?.attributes?.processingState;
+}
+async function waitForBuildProcessing(params, options) {
+    const { visibilityAttempts, visibilityDelayMs, processingAttempts, processingDelayMs, onRetry } = options;
+    await sleepMs(visibilityDelayMs); // initial wait before first lookup
+    await (0, poll_1.pollWithBackoff)(() => lookupBuildState(params), state => state === 'VALID' || state === 'PROCESSING', visibilityAttempts, visibilityDelayMs, label => onRetry?.(`Waiting for build ${params.buildNumber} visibility: ${label}`));
+    await (0, poll_1.pollWithBackoff)(() => lookupBuildState(params), state => state === 'VALID', processingAttempts, processingDelayMs, label => onRetry?.(`Waiting for build ${params.buildNumber} processing: ${label}`));
+}
+function buildFilterQuery(params) {
+    const query = new URLSearchParams();
+    query.set('filter[app]', params.appId);
+    query.set('filter[version]', params.buildNumber);
+    query.set('filter[preReleaseVersion.platform]', params.platform);
+    return query.toString();
+}
+async function sleepMs(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 
@@ -640,6 +676,7 @@ function normalizeBackend(value) {
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.pollUntil = pollUntil;
+exports.pollWithBackoff = pollWithBackoff;
 async function pollUntil(action, predicate, options) {
     for (let attempt = 0; attempt < options.attempts; attempt++) {
         const result = await action();
@@ -650,6 +687,21 @@ async function pollUntil(action, predicate, options) {
         await delay(options.delayMs);
     }
     throw new Error('Exceeded maximum attempts while polling App Store Connect state.');
+}
+async function pollWithBackoff(fn, predicate, attempts, initialDelayMs, onRetry, backoffCapMs = 5 * 60 * 1000) {
+    let delayMs = initialDelayMs;
+    for (let attempt = 0; attempt < attempts; attempt++) {
+        const value = await fn();
+        if (predicate(value))
+            return value;
+        if (attempt === attempts - 1)
+            break;
+        const label = `attempt ${attempt + 1}/${attempts}; next retry in ${delayMs / 1000}s`;
+        onRetry?.(label);
+        await delay(delayMs);
+        delayMs = Math.min(delayMs * 2, backoffCapMs);
+    }
+    throw new Error('Timed out while polling App Store Connect state.');
 }
 async function delay(durationMs) {
     return new Promise(resolve => {
@@ -28780,7 +28832,7 @@ var exports = __webpack_exports__;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 const core_1 = __nccwpck_require__(7484);
 const os_1 = __nccwpck_require__(857);
-const releaseNotes_1 = __nccwpck_require__(1396);
+const buildMetadata_1 = __nccwpck_require__(2445);
 const keys_1 = __nccwpck_require__(7284);
 const transporter_1 = __nccwpck_require__(2046);
 const altool_1 = __nccwpck_require__(9373);
@@ -28797,6 +28849,7 @@ async function run() {
         const appPath = (0, core_1.getInput)('app-path');
         const appType = (0, core_1.getInput)('app-type');
         const releaseNotes = (0, core_1.getInput)('release-notes');
+        const usesNonExemptEncryptionInput = (0, core_1.getInput)('uses-non-exempt-encryption');
         const backendInput = (0, core_1.getInput)('backend') || 'appstore-api';
         const transporterExecutablePath = (0, core_1.getInput)('transporter-executable-path') || undefined;
         const backend = (0, normalize_backend_1.normalizeBackend)(backendInput);
@@ -28830,8 +28883,9 @@ async function run() {
             transporterExecutablePath
         }, execOptions);
         (0, core_1.info)(`Upload finished via backend: ${result.backend}`);
-        await (0, releaseNotes_1.submitReleaseNotesIfProvided)({
+        await (0, buildMetadata_1.submitBuildMetadataUpdates)({
             releaseNotes,
+            usesNonExemptEncryptionInput,
             appPath,
             appType,
             issuerId,

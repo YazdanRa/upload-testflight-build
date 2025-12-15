@@ -6,6 +6,7 @@ import {generateJwt} from '../auth/jwt'
 import {buildPlatform, fetchJson} from '../utils/http'
 import {extractAppMetadata} from '../utils/appMetadata'
 import {lookupAppId} from '../utils/lookup-app-id'
+import {waitForBuildProcessing} from '../utils/buildLookup'
 
 const MAX_PROCESSING_ATTEMPTS = 10
 const PROCESSING_DELAY_MS = 30000
@@ -281,73 +282,14 @@ async function pollBuildProcessing(params: {
   platform: string
   token: string
 }): Promise<void> {
-  await new Promise(resolve => setTimeout(resolve, 30000))
-
-  await pollWithBackoff(
-    () => lookupBuildState(params),
-    state => state === 'VALID' || state === 'PROCESSING',
-    VISIBILITY_ATTEMPTS,
-    VISIBILITY_DELAY_MS,
-    `build ${params.buildNumber} to appear in App Store Connect`
-  )
-
-  await pollWithBackoff(
-    () => lookupBuildState(params),
-    state => state === 'VALID',
-    MAX_PROCESSING_ATTEMPTS,
-    PROCESSING_DELAY_MS,
-    'build processing to finish'
-  )
+  await waitForBuildProcessing(params, {
+    visibilityAttempts: VISIBILITY_ATTEMPTS,
+    visibilityDelayMs: VISIBILITY_DELAY_MS,
+    processingAttempts: MAX_PROCESSING_ATTEMPTS,
+    processingDelayMs: PROCESSING_DELAY_MS,
+    onRetry: message =>
+      warning(`Waiting for build ${params.buildNumber}: ${message}`)
+  })
 
   info('Build upload completed and processing is VALID.')
-}
-
-async function pollWithBackoff<T>(
-  fn: () => Promise<T>,
-  predicate: (value: T) => boolean,
-  attempts: number,
-  initialDelayMs: number,
-  label: string
-): Promise<T> {
-  let delay = initialDelayMs
-  for (let attempt = 0; attempt < attempts; attempt++) {
-    const value = await fn()
-    if (predicate(value)) return value
-    if (attempt === attempts - 1) break
-    warning(
-      `Waiting for ${label} (attempt ${attempt + 1}/${attempts}); next retry in ${
-        delay / 1000
-      }s.`
-    )
-    await new Promise(resolve => setTimeout(resolve, delay))
-    delay = Math.min(delay * 2, 5 * 60 * 1000) // cap backoff at 5 minutes
-  }
-  throw new Error(`Timed out waiting for ${label}.`)
-}
-
-export async function lookupBuildState(params: {
-  appId: string
-  buildNumber: string
-  platform: string
-  token: string
-}): Promise<string | undefined> {
-  const query = new URLSearchParams()
-  query.set('filter[app]', params.appId)
-  query.set('filter[version]', params.buildNumber)
-  query.set('filter[preReleaseVersion.platform]', params.platform)
-
-  const response = await fetchJson<{
-    data?: Array<{attributes?: {processingState?: string}}>
-  }>(
-    // Docs: https://developer.apple.com/documentation/appstoreconnectapi/builds
-    `/builds?${query.toString()}`,
-    params.token,
-    'Failed to query builds for processing state.'
-  )
-
-  const state = response.data?.[0]?.attributes?.processingState
-  if (state) {
-    debug(`Build processing state: ${state}`)
-  }
-  return state
 }

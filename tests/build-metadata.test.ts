@@ -4,7 +4,7 @@ import {mkdtemp, readdir} from 'fs/promises'
 import {rmRF} from '@actions/io'
 import {info, warning} from '@actions/core'
 import {createSign} from 'crypto'
-import {submitReleaseNotesIfProvided} from '../src/releaseNotes'
+import {submitBuildMetadataUpdates} from '../src/buildMetadata'
 
 const execMock = vi.hoisted(() => vi.fn())
 const mkdtempMock = vi.hoisted(() => vi.fn())
@@ -82,9 +82,10 @@ describe('release notes submission', () => {
     }
   })
 
-  it('logs and exits early when release notes are not provided', async () => {
-    await submitReleaseNotesIfProvided({
+  it('logs and exits early when neither release notes nor encryption flag provided', async () => {
+    await submitBuildMetadataUpdates({
       releaseNotes: '   ',
+      usesNonExemptEncryptionInput: undefined,
       appPath: 'path/to/app.ipa',
       appType: 'ios',
       issuerId: 'issuer-id',
@@ -93,7 +94,7 @@ describe('release notes submission', () => {
     })
 
     expect(info).toHaveBeenCalledWith(
-      'No release note provided. Skipping TestFlight metadata update.'
+      'No release note or encryption compliance requested. Skipping TestFlight metadata update.'
     )
     expect(exec).not.toHaveBeenCalled()
     expect(fetchMock).not.toHaveBeenCalled()
@@ -158,7 +159,7 @@ describe('release notes submission', () => {
       }
     )
 
-    await submitReleaseNotesIfProvided({
+    await submitBuildMetadataUpdates({
       releaseNotes: longNotes,
       appPath: 'path/to/app.ipa',
       appType: 'ios',
@@ -205,5 +206,69 @@ describe('release notes submission', () => {
     )
     expect(warning).not.toHaveBeenCalled()
     expect(createSign).toHaveBeenCalledWith('SHA256')
+  })
+
+  it('updates only encryption compliance when release notes are empty but flag is provided', async () => {
+    const observedPatchBody: unknown[] = []
+
+    fetchMock.mockImplementation(
+      async (
+        input: unknown,
+        init?: {
+          method?: string
+          headers?: Record<string, string>
+          body?: unknown
+        }
+      ) => {
+        const url = input instanceof URL ? input : new URL(String(input))
+        const method = (init?.method ?? 'GET').toUpperCase()
+
+        if (method === 'PATCH') {
+          observedPatchBody.push(
+            init?.body ? JSON.parse(init.body as string) : undefined
+          )
+          return {
+            ok: true,
+            status: 200,
+            headers: {get: () => 'application/json'},
+            json: async () => ({}),
+            text: async () => '{}'
+          }
+        }
+
+        const path = url.pathname
+        const data =
+          path === '/apps' || path === '/v1/apps'
+            ? {data: [{id: 'app-id'}]}
+            : path === '/builds' || path === '/v1/builds'
+              ? {data: [{id: 'build-id'}]}
+              : {data: []}
+
+        return {
+          ok: true,
+          status: 200,
+          headers: {get: () => 'application/json'},
+          json: async () => data,
+          text: async () => JSON.stringify(data)
+        }
+      }
+    )
+
+    await submitBuildMetadataUpdates({
+      releaseNotes: '   ',
+      usesNonExemptEncryptionInput: 'false',
+      appPath: 'path/to/app.ipa',
+      appType: 'ios',
+      issuerId: 'issuer-id',
+      apiKeyId: 'api-key-id',
+      apiPrivateKey: 'PRIVATE_KEY'
+    })
+
+    expect(exec).toHaveBeenCalled()
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    const patchPayload = observedPatchBody[0] as {
+      data: {attributes: {usesNonExemptEncryption: boolean}}
+    }
+    expect(patchPayload.data.attributes.usesNonExemptEncryption).toBe(false)
   })
 })

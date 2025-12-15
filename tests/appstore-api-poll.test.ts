@@ -1,6 +1,6 @@
 import {describe, expect, it, vi} from 'vitest'
 import {fetchJson} from '../src/utils/http'
-import {lookupBuildState} from '../src/backends/appstore-api'
+import {lookupBuildState} from '../src/utils/buildLookup'
 
 vi.mock('../src/utils/http', () => ({
   fetchJson: vi.fn()

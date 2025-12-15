@@ -22,6 +22,29 @@ export async function pollUntil<T>(
   )
 }
 
+export async function pollWithBackoff<T>(
+  fn: () => Promise<T>,
+  predicate: (value: T) => boolean,
+  attempts: number,
+  initialDelayMs: number,
+  onRetry?: (message: string) => void,
+  backoffCapMs = 5 * 60 * 1000
+): Promise<T> {
+  let delayMs = initialDelayMs
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const value = await fn()
+    if (predicate(value)) return value
+    if (attempt === attempts - 1) break
+    const label = `attempt ${attempt + 1}/${attempts}; next retry in ${
+      delayMs / 1000
+    }s`
+    onRetry?.(label)
+    await delay(delayMs)
+    delayMs = Math.min(delayMs * 2, backoffCapMs)
+  }
+  throw new Error('Timed out while polling App Store Connect state.')
+}
+
 async function delay(durationMs: number): Promise<void> {
   return new Promise(resolve => {
     setTimeout(resolve, durationMs)

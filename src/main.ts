@@ -12,10 +12,6 @@ import {ExecOptions} from '@actions/exec/lib/interfaces'
 
 async function run(): Promise<void> {
   try {
-    if (platform() !== 'darwin') {
-      throw new Error('Action requires macOS agent.')
-    }
-
     const issuerId: string = getInput('issuer-id')
     const apiKeyId: string = getInput('api-key-id')
     const apiPrivateKey: string = getInput('api-private-key')
@@ -48,6 +44,12 @@ async function run(): Promise<void> {
     const uploader = factories[backend]
     if (!uploader) {
       throw new Error(`Unsupported backend ${backend}`)
+    }
+
+    if (backend !== 'appstoreApi' && platform() !== 'darwin') {
+      throw new Error(
+        `Backend "${backend}" requires a macOS runner (found ${platform()}).`
+      )
     }
 
     const execOptions: ExecOptions = {}

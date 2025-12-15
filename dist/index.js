@@ -28850,9 +28850,6 @@ const appstore_api_1 = __nccwpck_require__(8727);
 const normalize_backend_1 = __nccwpck_require__(9244);
 async function run() {
     try {
-        if ((0, os_1.platform)() !== 'darwin') {
-            throw new Error('Action requires macOS agent.');
-        }
         const issuerId = (0, core_1.getInput)('issuer-id');
         const apiKeyId = (0, core_1.getInput)('api-key-id');
         const apiPrivateKey = (0, core_1.getInput)('api-private-key');
@@ -28876,6 +28873,9 @@ async function run() {
         const uploader = factories[backend];
         if (!uploader) {
             throw new Error(`Unsupported backend ${backend}`);
+        }
+        if (backend !== 'appstoreApi' && (0, os_1.platform)() !== 'darwin') {
+            throw new Error(`Backend "${backend}" requires a macOS runner (found ${(0, os_1.platform)()}).`);
         }
         const execOptions = {};
         (0, core_1.info)('Installing API private key.');

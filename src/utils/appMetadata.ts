@@ -1,8 +1,6 @@
-import {mkdtemp, readdir} from 'fs/promises'
-import {tmpdir} from 'os'
-import {join} from 'path'
-import {exec} from '@actions/exec'
-import {rmRF} from '@actions/io'
+import AdmZip from 'adm-zip'
+import plist from 'plist'
+import bplist from 'bplist-parser'
 
 type AppMetadata = {
   bundleId: string
@@ -13,51 +11,40 @@ type AppMetadata = {
 export async function extractAppMetadata(
   appPath: string
 ): Promise<AppMetadata> {
-  const workingDir = await mkdtemp(join(tmpdir(), 'upload-testflight-'))
+  const zip = new AdmZip(appPath)
+  const entries = zip.getEntries()
+  const infoEntry = entries.find((entry: {entryName: string}) =>
+    /Payload\/[^/]+\.app\/Info\.plist$/.test(entry.entryName)
+  )
 
-  try {
-    await exec('ditto', ['-xk', appPath, workingDir], {silent: true})
-
-    const payloadDirectory = join(workingDir, 'Payload')
-    const entries = await readdir(payloadDirectory)
-    const appDirectory = entries.find(entry => entry.endsWith('.app'))
-
-    if (!appDirectory) {
-      throw new Error(
-        'Unable to locate *.app bundle inside TestFlight payload.'
-      )
-    }
-
-    const infoPath = join(payloadDirectory, appDirectory, 'Info.plist')
-    const infoJson = await readPlistAsJson(infoPath)
-    const parsed = JSON.parse(infoJson) as Record<string, string>
-
-    const bundleId = parsed['CFBundleIdentifier']
-    const buildNumber = parsed['CFBundleVersion']
-    const shortVersion = parsed['CFBundleShortVersionString']
-
-    if (!bundleId || !buildNumber || !shortVersion) {
-      throw new Error(
-        'Info.plist missing CFBundleIdentifier, CFBundleVersion, or CFBundleShortVersionString.'
-      )
-    }
-
-    return {bundleId, buildNumber, shortVersion}
-  } finally {
-    await rmRF(workingDir)
+  if (!infoEntry) {
+    throw new Error('Unable to locate Info.plist inside the IPA Payload.')
   }
+
+  const plistBuffer = infoEntry.getData()
+  const parsed = parsePlistBuffer(plistBuffer)
+
+  const bundleId = parsed['CFBundleIdentifier']
+  const buildNumber = parsed['CFBundleVersion']
+  const shortVersion = parsed['CFBundleShortVersionString']
+
+  if (!bundleId || !buildNumber || !shortVersion) {
+    throw new Error(
+      'Info.plist missing CFBundleIdentifier, CFBundleVersion, or CFBundleShortVersionString.'
+    )
+  }
+
+  return {bundleId, buildNumber, shortVersion}
 }
 
-async function readPlistAsJson(plistPath: string): Promise<string> {
-  let output = ''
-  await exec('plutil', ['-convert', 'json', '-o', '-', plistPath], {
-    silent: true,
-    listeners: {
-      stdout: (data: Buffer) => {
-        output += data.toString()
-      }
-    }
-  })
+function parsePlistBuffer(buffer: Buffer): Record<string, string> {
+  const isBinary =
+    buffer.length >= 6 && buffer.subarray(0, 6).toString('utf8') === 'bplist'
 
-  return output
+  if (isBinary) {
+    const parsed = bplist.parseBuffer(buffer)
+    return (parsed[0] ?? {}) as Record<string, string>
+  }
+
+  return plist.parse(buffer.toString()) as Record<string, string>
 }

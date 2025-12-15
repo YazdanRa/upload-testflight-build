@@ -25,6 +25,11 @@ async function run(): Promise<void> {
     const usesNonExemptEncryptionInput: string = getInput(
       'uses-non-exempt-encryption'
     )
+    const waitForProcessingInput: string = getInput('wait-for-processing')
+    const waitForProcessing =
+      waitForProcessingInput.trim() === ''
+        ? true
+        : waitForProcessingInput.trim().toLowerCase() !== 'false'
     const backendInput: string = getInput('backend') || 'appstore-api'
     const transporterExecutablePath: string | undefined =
       getInput('transporter-executable-path') || undefined
@@ -64,6 +69,7 @@ async function run(): Promise<void> {
         apiKeyId,
         issuerId,
         apiPrivateKey,
+        waitForProcessing,
         transporterExecutablePath
       },
       execOptions
@@ -72,6 +78,7 @@ async function run(): Promise<void> {
     await submitBuildMetadataUpdates({
       releaseNotes,
       usesNonExemptEncryptionInput,
+      waitForProcessing,
       appPath,
       appType,
       issuerId,

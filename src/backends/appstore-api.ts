@@ -57,12 +57,16 @@ export const appstoreApi: Uploader = {
     await completeBuildUpload(buildUpload.fileId, token)
     info('Marked build upload as complete; waiting for processing.')
 
-    await pollBuildProcessing({
-      appId,
-      buildNumber: metadata.buildNumber,
-      platform,
-      token
-    })
+    if (params.waitForProcessing !== false) {
+      await pollBuildProcessing({
+        appId,
+        buildNumber: metadata.buildNumber,
+        platform,
+        token
+      })
+    } else {
+      info('Skipping wait for App Store processing per configuration.')
+    }
 
     return {backend: 'appstoreApi', raw: buildUpload}
   }

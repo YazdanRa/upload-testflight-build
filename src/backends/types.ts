@@ -9,6 +9,7 @@ export type UploadParams = {
   issuerId: string
   apiPrivateKey: string
   transporterExecutablePath?: string
+  waitForProcessing?: boolean
 }
 
 export type UploadResult = {

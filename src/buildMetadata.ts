@@ -14,6 +14,7 @@ export async function submitBuildMetadataUpdates(params: {
   issuerId: string
   apiKeyId: string
   apiPrivateKey: string
+  waitForProcessing?: boolean
 }): Promise<void> {
   const trimmed = params.releaseNotes.trim()
   const wantsReleaseNotes = trimmed !== ''
@@ -25,6 +26,13 @@ export async function submitBuildMetadataUpdates(params: {
   if (!wantsReleaseNotes && !wantsEncryptionUpdate) {
     info(
       'No release note or encryption compliance requested. Skipping TestFlight metadata update.'
+    )
+    return
+  }
+
+  if (params.waitForProcessing === false) {
+    info(
+      'wait-for-processing=false; skipping release notes and encryption updates because build visibility is not guaranteed.'
     )
     return
   }

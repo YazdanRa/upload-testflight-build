@@ -22,6 +22,8 @@
     api-key-id: ${{ vars.APPSTORE_API_KEY_ID }}
     api-private-key: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
     release-notes: ${{ steps.generate_notes.outputs.whats_new }} # optional
+    uses-non-exempt-encryption: 'false' # optional: "true" or "false" maps directly to App Store Connect usesNonExemptEncryption
+    wait-for-processing: 'true' # optional: set to "false" to skip waiting (metadata updates will be skipped)
     backend: AppStoreAPI # optional: AppStoreAPI | transporter | altool (default: AppStoreAPI; case insensitive)
 ```
 

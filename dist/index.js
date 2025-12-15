@@ -113,12 +113,17 @@ exports.appstoreApi = {
         (0, core_1.info)('Finished uploading build chunks.');
         await completeBuildUpload(buildUpload.fileId, token);
         (0, core_1.info)('Marked build upload as complete; waiting for processing.');
-        await pollBuildProcessing({
-            appId,
-            buildNumber: metadata.buildNumber,
-            platform,
-            token
-        });
+        if (params.waitForProcessing !== false) {
+            await pollBuildProcessing({
+                appId,
+                buildNumber: metadata.buildNumber,
+                platform,
+                token
+            });
+        }
+        else {
+            (0, core_1.info)('Skipping wait for App Store processing per configuration.');
+        }
         return { backend: 'appstoreApi', raw: buildUpload };
     }
 };
@@ -311,6 +316,10 @@ async function submitBuildMetadataUpdates(params) {
     const wantsEncryptionUpdate = parsedEncryption !== undefined;
     if (!wantsReleaseNotes && !wantsEncryptionUpdate) {
         (0, core_1.info)('No release note or encryption compliance requested. Skipping TestFlight metadata update.');
+        return;
+    }
+    if (params.waitForProcessing === false) {
+        (0, core_1.info)('wait-for-processing=false; skipping release notes and encryption updates because build visibility is not guaranteed.');
         return;
     }
     const metadata = await (0, appMetadata_1.extractAppMetadata)(params.appPath);
@@ -28851,6 +28860,10 @@ async function run() {
         const appType = (0, core_1.getInput)('app-type');
         const releaseNotes = (0, core_1.getInput)('release-notes');
         const usesNonExemptEncryptionInput = (0, core_1.getInput)('uses-non-exempt-encryption');
+        const waitForProcessingInput = (0, core_1.getInput)('wait-for-processing');
+        const waitForProcessing = waitForProcessingInput.trim() === ''
+            ? true
+            : waitForProcessingInput.trim().toLowerCase() !== 'false';
         const backendInput = (0, core_1.getInput)('backend') || 'appstore-api';
         const transporterExecutablePath = (0, core_1.getInput)('transporter-executable-path') || undefined;
         const backend = (0, normalize_backend_1.normalizeBackend)(backendInput);
@@ -28881,12 +28894,14 @@ async function run() {
             apiKeyId,
             issuerId,
             apiPrivateKey,
+            waitForProcessing,
             transporterExecutablePath
         }, execOptions);
         (0, core_1.info)(`Upload finished via backend: ${result.backend}`);
         await (0, buildMetadata_1.submitBuildMetadataUpdates)({
             releaseNotes,
             usesNonExemptEncryptionInput,
+            waitForProcessing,
             appPath,
             appType,
             issuerId,

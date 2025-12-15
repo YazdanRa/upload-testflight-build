@@ -11,7 +11,7 @@ import {waitForBuildProcessing} from '../utils/buildLookup'
 const MAX_PROCESSING_ATTEMPTS = 10
 const PROCESSING_DELAY_MS = 30000
 const VISIBILITY_ATTEMPTS = 10
-const VISIBILITY_DELAY_MS = 30000
+const VISIBILITY_DELAY_MS = 60000 // 1 minute initial wait before polling visibility
 
 export const appstoreApi: Uploader = {
   async upload(params: UploadParams): Promise<UploadResult> {

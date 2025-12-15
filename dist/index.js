@@ -87,7 +87,7 @@ const buildLookup_1 = __nccwpck_require__(7920);
 const MAX_PROCESSING_ATTEMPTS = 10;
 const PROCESSING_DELAY_MS = 30000;
 const VISIBILITY_ATTEMPTS = 10;
-const VISIBILITY_DELAY_MS = 30000;
+const VISIBILITY_DELAY_MS = 60000; // 1 minute initial wait before polling visibility
 exports.appstoreApi = {
     async upload(params) {
         (0, core_1.info)('Starting App Store API upload backend.');

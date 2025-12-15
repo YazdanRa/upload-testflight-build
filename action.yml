@@ -35,8 +35,6 @@ inputs:
     description: 'Boolean string. Set to "false" to skip waiting for App Store processing (metadata updates will be skipped when waiting is disabled).'
     required: false
 outputs:
-  transporter-response:
-    description: 'output from chosen upload backend'
   upload-backend:
     description: 'The backend that performed the upload'
 runs:

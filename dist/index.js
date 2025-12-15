@@ -28877,14 +28877,7 @@ async function run() {
         if (!uploader) {
             throw new Error(`Unsupported backend ${backend}`);
         }
-        let output = '';
-        const execOptions = {
-            listeners: {
-                stdout: (data) => {
-                    output += data.toString();
-                }
-            }
-        };
+        const execOptions = {};
         (0, core_1.info)('Installing API private key.');
         await (0, keys_1.installPrivateKey)(apiKeyId, apiPrivateKey);
         (0, core_1.info)('Private key installed.');
@@ -28911,8 +28904,6 @@ async function run() {
         (0, core_1.info)('Release notes step completed (or skipped).');
         await (0, keys_1.deleteAllPrivateKeys)();
         (0, core_1.info)('Private keys cleaned up.');
-        const responseText = result.log ?? output ?? '';
-        (0, core_1.setOutput)('transporter-response', responseText);
         (0, core_1.setOutput)('upload-backend', result.backend);
     }
     catch (error) {

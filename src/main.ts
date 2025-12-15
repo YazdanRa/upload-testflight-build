@@ -50,14 +50,7 @@ async function run(): Promise<void> {
       throw new Error(`Unsupported backend ${backend}`)
     }
 
-    let output = ''
-    const execOptions: ExecOptions = {
-      listeners: {
-        stdout: (data: Buffer) => {
-          output += data.toString()
-        }
-      }
-    }
+    const execOptions: ExecOptions = {}
 
     info('Installing API private key.')
     await installPrivateKey(apiKeyId, apiPrivateKey)
@@ -89,8 +82,6 @@ async function run(): Promise<void> {
     await deleteAllPrivateKeys()
     info('Private keys cleaned up.')
 
-    const responseText = result.log ?? output ?? ''
-    setOutput('transporter-response', responseText)
     setOutput('upload-backend', result.backend)
   } catch (error: unknown | Error) {
     setFailed((error as Error).message || 'An unknown error occurred.')

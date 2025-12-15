@@ -239,7 +239,11 @@ describe('release notes submission', () => {
         const path = url.pathname
         const data =
           path === '/apps' || path === '/v1/apps'
-            ? {data: [{id: 'app-id'}]}
+            ? {
+                data: [
+                  {id: 'app-id', attributes: {bundleId: 'com.example.app'}}
+                ]
+              }
             : path === '/builds' || path === '/v1/builds'
               ? {data: [{id: 'build-id'}]}
               : {data: []}

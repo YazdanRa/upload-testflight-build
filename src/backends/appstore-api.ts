@@ -119,6 +119,7 @@ async function createBuildUpload(
       }
     }
   }>(
+    // Docs: https://developer.apple.com/documentation/appstoreconnectapi/build-uploads
     '/buildUploads',
     token,
     'Failed to create App Store build upload.',
@@ -178,6 +179,7 @@ async function createBuildUploadFile(
       attributes?: {uploadOperations?: UploadOperation[]}
     }
   }>(
+    // Docs: https://developer.apple.com/documentation/appstoreconnectapi/build-upload-files
     '/buildUploadFiles',
     token,
     'Failed to create App Store build upload file.',
@@ -256,6 +258,7 @@ async function completeBuildUpload(
   token: string
 ): Promise<void> {
   await fetchJson(
+    // Docs: https://developer.apple.com/documentation/appstoreconnectapi/build-upload-files
     `/buildUploadFiles/${fileId}`,
     token,
     'Failed to finalize App Store build upload.',
@@ -336,6 +339,7 @@ export async function lookupBuildState(params: {
   const response = await fetchJson<{
     data?: Array<{attributes?: {processingState?: string}}>
   }>(
+    // Docs: https://developer.apple.com/documentation/appstoreconnectapi/builds
     `/builds?${query.toString()}`,
     params.token,
     'Failed to query builds for processing state.'

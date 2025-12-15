@@ -10,6 +10,7 @@ export async function lookupAppId(
   const response = await fetchJson<{
     data?: Array<{id?: string}>
   }>(
+    // Docs: https://developer.apple.com/documentation/appstoreconnectapi/apps
     `/apps?${params.toString()}`,
     token,
     'Failed to locate App Store Connect application.'

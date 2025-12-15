@@ -47,6 +47,7 @@ async function lookupAppId(bundleId: string, token: string): Promise<string> {
   const response = await fetchJson<{
     data?: Array<{id?: string}>
   }>(
+    // Docs: https://developer.apple.com/documentation/appstoreconnectapi/apps
     `/apps?${params.toString()}`,
     token,
     'Failed to locate App Store Connect application.'
@@ -78,6 +79,7 @@ async function lookupBuildId(
       const response = await fetchJson<{
         data?: Array<{id?: string}>
       }>(
+        // Docs: https://developer.apple.com/documentation/appstoreconnectapi/builds
         `/builds?${params.toString()}`,
         token,
         'Failed to query builds for release note update.'
@@ -111,6 +113,7 @@ async function lookupLocalizationId(
       const response = await fetchJson<{
         data?: Array<{id?: string}>
       }>(
+        // Docs: https://developer.apple.com/documentation/appstoreconnectapi/betabuildlocalizations
         `/builds/${buildId}/betaBuildLocalizations`,
         token,
         'Failed to query beta build localizations.'
@@ -149,6 +152,7 @@ async function updateReleaseNotes(
   }
 
   await fetchJson(
+    // Docs: https://developer.apple.com/documentation/appstoreconnectapi/betabuildlocalizations
     `/betaBuildLocalizations/${localizationId}`,
     token,
     'Failed to update TestFlight release note.',

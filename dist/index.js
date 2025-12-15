@@ -141,7 +141,9 @@ async function createBuildUpload(params, token) {
             }
         }
     };
-    const response = await (0, http_1.fetchJson)('/buildUploads', token, 'Failed to create App Store build upload.', 'POST', payload);
+    const response = await (0, http_1.fetchJson)(
+    // Docs: https://developer.apple.com/documentation/appstoreconnectapi/build-uploads
+    '/buildUploads', token, 'Failed to create App Store build upload.', 'POST', payload);
     const inlineOperations = response.data.attributes.uploadOperations ?? [];
     let fileId;
     let uploadOperations = [];
@@ -170,7 +172,9 @@ async function createBuildUpload(params, token) {
     };
 }
 async function createBuildUploadFile(uploadId, fileName, fileSize, token) {
-    const response = await (0, http_1.fetchJson)('/buildUploadFiles', token, 'Failed to create App Store build upload file.', 'POST', {
+    const response = await (0, http_1.fetchJson)(
+    // Docs: https://developer.apple.com/documentation/appstoreconnectapi/build-upload-files
+    '/buildUploadFiles', token, 'Failed to create App Store build upload file.', 'POST', {
         data: {
             type: 'buildUploadFiles',
             attributes: {
@@ -220,7 +224,9 @@ async function performUpload(upload, appPath) {
     }
 }
 async function completeBuildUpload(fileId, token) {
-    await (0, http_1.fetchJson)(`/buildUploadFiles/${fileId}`, token, 'Failed to finalize App Store build upload.', 'PATCH', {
+    await (0, http_1.fetchJson)(
+    // Docs: https://developer.apple.com/documentation/appstoreconnectapi/build-upload-files
+    `/buildUploadFiles/${fileId}`, token, 'Failed to finalize App Store build upload.', 'PATCH', {
         data: {
             id: fileId,
             type: 'buildUploadFiles',
@@ -255,7 +261,9 @@ async function lookupBuildState(params) {
     query.set('filter[app]', params.appId);
     query.set('filter[version]', params.buildNumber);
     query.set('filter[preReleaseVersion.platform]', params.platform);
-    const response = await (0, http_1.fetchJson)(`/builds?${query.toString()}`, params.token, 'Failed to query builds for processing state.');
+    const response = await (0, http_1.fetchJson)(
+    // Docs: https://developer.apple.com/documentation/appstoreconnectapi/builds
+    `/builds?${query.toString()}`, params.token, 'Failed to query builds for processing state.');
     const state = response.data?.[0]?.attributes?.processingState;
     if (state) {
         (0, core_1.debug)(`Build processing state: ${state}`);
@@ -337,7 +345,9 @@ async function submitReleaseNotesIfProvided(params) {
 async function lookupAppId(bundleId, token) {
     const params = new URLSearchParams();
     params.set('filter[bundleId]', bundleId);
-    const response = await (0, http_1.fetchJson)(`/apps?${params.toString()}`, token, 'Failed to locate App Store Connect application.');
+    const response = await (0, http_1.fetchJson)(
+    // Docs: https://developer.apple.com/documentation/appstoreconnectapi/apps
+    `/apps?${params.toString()}`, token, 'Failed to locate App Store Connect application.');
     const appId = response.data?.[0]?.id;
     if (!appId) {
         throw new Error(`Unable to find App Store Connect app for bundle id ${bundleId}.`);
@@ -350,7 +360,9 @@ async function lookupBuildId(appId, buildNumber, platform, token) {
     params.set('filter[version]', buildNumber);
     params.set('filter[preReleaseVersion.platform]', platform);
     const result = await (0, poll_1.pollUntil)(async () => {
-        const response = await (0, http_1.fetchJson)(`/builds?${params.toString()}`, token, 'Failed to query builds for release note update.');
+        const response = await (0, http_1.fetchJson)(
+        // Docs: https://developer.apple.com/documentation/appstoreconnectapi/builds
+        `/builds?${params.toString()}`, token, 'Failed to query builds for release note update.');
         return response.data?.[0]?.id;
     }, Boolean, {
         attempts: MAX_ATTEMPTS,
@@ -363,7 +375,9 @@ async function lookupBuildId(appId, buildNumber, platform, token) {
 }
 async function lookupLocalizationId(buildId, token) {
     const result = await (0, poll_1.pollUntil)(async () => {
-        const response = await (0, http_1.fetchJson)(`/builds/${buildId}/betaBuildLocalizations`, token, 'Failed to query beta build localizations.');
+        const response = await (0, http_1.fetchJson)(
+        // Docs: https://developer.apple.com/documentation/appstoreconnectapi/betabuildlocalizations
+        `/builds/${buildId}/betaBuildLocalizations`, token, 'Failed to query beta build localizations.');
         return response.data?.[0]?.id;
     }, Boolean, {
         attempts: MAX_ATTEMPTS,
@@ -384,7 +398,9 @@ async function updateReleaseNotes(localizationId, releaseNotes, token) {
             }
         }
     };
-    await (0, http_1.fetchJson)(`/betaBuildLocalizations/${localizationId}`, token, 'Failed to update TestFlight release note.', 'PATCH', payload);
+    await (0, http_1.fetchJson)(
+    // Docs: https://developer.apple.com/documentation/appstoreconnectapi/betabuildlocalizations
+    `/betaBuildLocalizations/${localizationId}`, token, 'Failed to update TestFlight release note.', 'PATCH', payload);
     (0, core_1.info)('Successfully updated TestFlight release note.');
 }
 
@@ -577,7 +593,9 @@ const http_1 = __nccwpck_require__(5212);
 async function lookupAppId(bundleId, token) {
     const params = new URLSearchParams();
     params.set('filter[bundleId]', bundleId);
-    const response = await (0, http_1.fetchJson)(`/apps?${params.toString()}`, token, 'Failed to locate App Store Connect application.');
+    const response = await (0, http_1.fetchJson)(
+    // Docs: https://developer.apple.com/documentation/appstoreconnectapi/apps
+    `/apps?${params.toString()}`, token, 'Failed to locate App Store Connect application.');
     const ids = (response.data ?? []).map(app => app.id).filter(Boolean);
     if (ids.length === 0) {
         throw new Error(`Unable to find App Store Connect app for bundle id ${bundleId}.`);
